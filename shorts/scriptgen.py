@@ -110,7 +110,7 @@ def make_script(gem: Gemini, cfg: dict, topic_override: str | None, used: list[s
     lang = cfg["channel"]["language_resolved"]
     recent = "\n".join(f"- {t}" for t in used[-40:]) or "(none yet)"
 
-        if topic_override:
+    if topic_override:
         print(f"  topic (override): {topic_override}")
     style_key = str(cfg["channel"].get("style", "")).lower().strip()
     style_block = STYLE_PROFILES.get(style_key, "")
