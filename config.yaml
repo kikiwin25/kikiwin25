@@ -22,11 +22,21 @@ video:
   fps: 30
 
 tts:
-  # Gemini voices: Puck (upbeat male), Kore (firm female), Charon (informative
-  # male), Leda (youthful female), Fenrir, Aoede, Callirrhoe, Autonoe...
+  # Voice provider: "elevenlabs" (most natural, incl. Arabic, 1 request/video,
+  # word-exact caption timing) or "gemini" (Google AI, batched 3 req/video).
+  # If ElevenLabs fails or is out of quota, Gemini is used automatically.
+  provider: "elevenlabs"
+  # ElevenLabs voice (works for Arabic via the multilingual model):
+  #   pNInz6obpgDQGcFmaJgB = Adam (deep male) | 21m00Tcm4TlvDq8ikWAM = Rachel
+  #   Pick any voice from elevenlabs.io -> Voice Library and copy its ID.
+  elevenlabs_voice_id: "pNInz6obpgDQGcFmaJgB"
+  # eleven_multilingual_v2 = best quality | eleven_turbo_v2_5 = faster/cheaper
+  elevenlabs_model: "eleven_multilingual_v2"
+  # Gemini fallback voice:
   voice: "Kore"
   style: "a confident, energetic narrator speaking clear Modern Standard Arabic (فصحى)"
-  gap_seconds: 0.18           # pause between sentences
+  gap_seconds: 0.18           # pause between batches (gemini provider)
+  chunks: 3                   # gemini provider: requests per video
 
 captions:
   # Arabic captions need an Arabic font — the repo bundles Almarai (fonts/).
