@@ -8,6 +8,7 @@ google-auth-oauthlib>=1.2
 
 # --- video assembly ---
 Pillow>=10.0
+imageio-ffmpeg>=0.5
 PyYAML>=6.0
 python-dotenv>=1.0
 # NOTE: ffmpeg is NOT a pip package. GitHub runners have it preinstalled.
