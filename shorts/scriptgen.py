@@ -112,7 +112,9 @@ def make_script(gem: Gemini, cfg: dict, topic_override: str | None, used: list[s
 
     if topic_override:
         print(f"  topic (override): {topic_override}")
-    prompt = PROMPT.format(niche=niche, language=lang, used=recent)
+        style_key = str(cfg["channel"].get("style", "")).lower().strip()
+    style_block = STYLE_PROFILES.get(style_key, "")
+    prompt = PROMPT.format(niche=niche, language=lang, used=recent, style_block=style_block)
     data = gem.json_text(prompt, temperature=1.0)
 
     if topic_override:
