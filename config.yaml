@@ -14,6 +14,8 @@ channel:
 video:
   target_seconds: 40          # rough narration length (Shorts max = 60)
   scenes: 3                   # number of background images (1-4)
+    stock_video:
+    enabled: true
   scene_style: "Vox-style flat editorial illustration: bold minimalist vector shapes, paper-cutout layers, muted background with one strong accent color, subtle film grain, infographic composition, vertical 9:16"
   max_words_per_caption: 3    # words shown per caption pop
   uppercase_captions: false   # Vox style = clean sentence case
