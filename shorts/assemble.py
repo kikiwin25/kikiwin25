@@ -1,6 +1,6 @@
 """Step 5 — assemble the vertical Short with ffmpeg + libass.
 
-Pipeline:  bg_i.png --zoompan--> scene_i.mp4 --concat--> silent.mp4
+Pipeline:  bg_i (stock clip OR image) --> scene_i.mp4 --> silent.mp4
            narration.wav (+optional music) + subs.ass  -->  final.mp4
 """
 from __future__ import annotations
@@ -37,16 +37,25 @@ def _run(cmd: list[str], cwd: Path) -> None:
 
 
 # --------------------------------------------------------------- zoompan
-# p = frame progress 0..1 (on/total). Centered crop keeps motion smooth.
 _PROFILES = [
     ("zoom in",  "1+0.12*on/{n}",          "iw/2-(iw/zoom/2)",        "ih/2-(ih/zoom/2)"),
     ("pan L->R", "1.12",                    "(iw-iw/zoom)*on/{n}",     "ih/2-(ih/zoom/2)"),
-    ("zoom out", "1.12-0.12*on/{n}",       "iw/2-(iw/zoom/2)",        "ih/2-(ih/zoom/2)"),
+    ("zoom out", "1.12-0.12*on/{n}",       "iw/2-(ih/zoom/2)",        "ih/2-(ih/zoom/2)"),
     ("pan R->L", "1.12",                    "(iw-iw/zoom)*(1-on/{n})", "ih/2-(ih/zoom/2)"),
 ]
 
 
 def _render_scene(ffmpeg: str, bg: Path, frames: int, fps: int, idx: int, workdir: Path) -> Path:
+    """bg may be a stock VIDEO clip (.mp4...) -> trimmed, or an IMAGE -> zoompan."""
+    out = workdir / f"scene_{idx}.mp4"
+    if bg.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv"):
+        vf = (f"scale={W}:{H}:force_original_aspect_ratio=increase,"
+              f"crop={W}:{H},fps={fps},format=yuv420p")
+        _run([ffmpeg, "-y", "-i", bg.name, "-vf", vf, "-frames:v", str(frames),
+              "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", out.name],
+             workdir)
+        return out
+
     name, zf, xf, yf = _PROFILES[idx % len(_PROFILES)]
     n = max(frames - 1, 1)
     z, x, y = zf.format(n=n), xf.format(n=n), yf.format(n=n)
@@ -56,7 +65,6 @@ def _render_scene(ffmpeg: str, bg: Path, frames: int, fps: int, idx: int, workdi
         f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={W}x{H}:fps={fps},"
         f"format=yuv420p"
     )
-    out = workdir / f"scene_{idx}.mp4"
     _run([ffmpeg, "-y", "-i", bg.name, "-vf", vf, "-frames:v", str(frames),
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", out.name], workdir)
     return out
@@ -81,7 +89,6 @@ def _mux(ffmpeg: str, silent: Path, narration: Path, subs: Path, workdir: Path,
         print(f"  [warn] music enabled but {music_path} missing — skipping music")
         music_path = None
 
-    # ass filter + bundled repo fonts (e.g. Arabic captions with Almarai)
     ass_filter = f"ass={subs.name}"
     repo_fonts = workdir.parent.parent / "fonts"
     if repo_fonts.is_dir():
@@ -112,18 +119,18 @@ def _mux(ffmpeg: str, silent: Path, narration: Path, subs: Path, workdir: Path,
 # ------------------------------------------------------------------ entry
 def render(workdir: Path, narration: Path, narration_len_s: float,
            timings, cfg: dict) -> Path:
-    """Build final.mp4 inside workdir. `timings` only used for subs filename."""
+    """Build final.mp4 inside workdir."""
     ffmpeg = find_ffmpeg()
-    w, h = cfg["video"]["resolution"]
     fps = int(cfg["video"]["fps"])
 
-    # subs file is written by caller into workdir/subs.ass
     subs = workdir / "subs.ass"
     if not subs.exists():
         raise SystemExit("[✗] subs.ass missing — captions step did not run.")
 
     total_frames = max(fps, round(narration_len_s * fps))
-    n_scenes = max(1, len(list(workdir.glob("bg_*.png"))))
+    # backgrounds may be stock video clips (bg_*.mp4) or AI images (bg_*.png)
+    bgs = sorted(workdir.glob("bg_*.mp4")) + sorted(workdir.glob("bg_*.png"))
+    n_scenes = max(1, len(bgs))
     base = total_frames // n_scenes
     extra = total_frames - base * n_scenes
 
@@ -131,10 +138,11 @@ def render(workdir: Path, narration: Path, narration_len_s: float,
     idx = 0
     for i in range(n_scenes):
         frames = base + (1 if i < extra else 0)
-        bg = workdir / f"bg_{i}.png"
+        bg = bgs[i]
         scenes.append(_render_scene(ffmpeg, bg, frames, fps, idx, workdir))
         idx += 1
-        print(f"  [render] scene {i + 1}/{n_scenes} ({frames / fps:.1f}s)")
+        kind = "stock clip" if bg.suffix == ".mp4" else "image"
+        print(f"  [render] scene {i + 1}/{n_scenes} ({frames / fps:.1f}s, {kind})")
 
     silent = _concat(ffmpeg, scenes, workdir)
     print("  [render] scenes concatenated, muxing audio + captions ...")
