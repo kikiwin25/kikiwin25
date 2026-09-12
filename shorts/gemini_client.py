@@ -124,12 +124,17 @@ class Gemini:
     def image_png(self, prompt: str) -> bytes | None:
         """Generate one image; returns image bytes or None (poster fallback).
 
-        Tries a chain of image models/methods because availability differs per
-        key/tier; prints a diagnostic summary when everything fails.
+        "Nano Banana" (Gemini 2.5 Flash Image) first, then fallbacks —
+        availability differs per key/region; prints diagnostics when all fail.
         """
         first = self.limits["gemini_image_model"]
         chain: list[tuple[str, str]] = []  # (model, method)
-        for m in [first, "gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"]:
+        for m in [
+            "gemini-2.5-flash-image-preview",    # Nano Banana (launch ID)
+            "gemini-2.5-flash-image",            # Nano Banana (stable alias)
+            first or "",
+            "gemini-2.0-flash-preview-image-generation",
+        ]:
             if m and (m, "content") not in chain:
                 chain.append((m, "content"))
         for m in ("imagen-4.0-generate-001", "imagen-3.0-generate-002"):
