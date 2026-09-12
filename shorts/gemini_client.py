@@ -122,20 +122,34 @@ class Gemini:
 
     # ----------------------------------------------------------------- image
     def image_png(self, prompt: str) -> bytes | None:
-        """Generate one image; returns PNG bytes or None (caller falls back)."""
+        """Generate one image; returns PNG/JPEG bytes or None (poster fallback).
+
+        Tries several request shapes because image models differ in what they
+        accept/return across SDK versions; collects diagnostics on failure.
+        """
         model = self.limits["gemini_image_model"]
 
-        def call() -> bytes:
-            resp = self.client.models.generate_content(model=model, contents=prompt)
+        def _extract(resp) -> bytes:
             parts = resp.candidates[0].content.parts or []
             for part in parts:
                 inline = getattr(part, "inline_data", None)
-                if inline and inline.data and (inline.mime_type or "").startswith("image/"):
+                if inline and inline.data and str(inline.mime_type or "").startswith("image/"):
                     return inline.data
-            raise GeminiError("no image in response")
+            kinds = [type(getattr(p, "inline_data", None)).__name__ for p in parts]
+            raise GeminiError(f"no image part in response (parts={len(parts)}, kinds={kinds})")
 
-        try:
-            return with_retries(call, attempts=3, what=f"{model} image")
-        except Exception as exc:  # noqa: BLE001 — images are optional
-            print(f"    [warn] image model unavailable ({str(exc)[:120]}) — using styled gradient")
-            return None
+        attempts = [
+            ("plain", lambda: self.client.models.generate_content(model=model, contents=prompt)),
+            ("modalities", lambda: self.client.models.generate_content(
+                model=model, contents=prompt,
+                config={"response_modalities": ["TEXT", "IMAGE"]})),
+        ]
+        errors: list[str] = []
+        for name, fn in attempts:
+            try:
+                resp = with_retries(fn, attempts=2, what=f"{model} image ({name})")
+                return _extract(resp)
+            except Exception as exc:  # noqa: BLE001 — try next shape
+                errors.append(f"{name}: {str(exc)[:160]}")
+        print(f"    [image-diag] {' | '.join(errors)}")
+        return None
