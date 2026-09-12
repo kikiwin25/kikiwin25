@@ -3,7 +3,7 @@
 One API key (Google AI Studio) covers every AI step:
   - limits.gemini_text_model   -> topic + script + metadata  (JSON mode)
   - limits.gemini_tts_model    -> narration audio            (raw PCM)
-  - limits.gemini_image_model  -> scene backgrounds          (PNG bytes)
+  - limits.gemini_image_model  -> scene backgrounds          (image bytes)
 """
 from __future__ import annotations
 
@@ -122,12 +122,19 @@ class Gemini:
 
     # ----------------------------------------------------------------- image
     def image_png(self, prompt: str) -> bytes | None:
-        """Generate one image; returns PNG/JPEG bytes or None (poster fallback).
+        """Generate one image; returns image bytes or None (poster fallback).
 
-        Tries several request shapes because image models differ in what they
-        accept/return across SDK versions; collects diagnostics on failure.
+        Tries a chain of image models/methods because availability differs per
+        key/tier; prints a diagnostic summary when everything fails.
         """
-        model = self.limits["gemini_image_model"]
+        first = self.limits["gemini_image_model"]
+        chain: list[tuple[str, str]] = []  # (model, method)
+        for m in [first, "gemini-2.5-flash-image", "gemini-2.0-flash-preview-image-generation"]:
+            if m and (m, "content") not in chain:
+                chain.append((m, "content"))
+        for m in ("imagen-4.0-generate-001", "imagen-3.0-generate-002"):
+            if (m, "imagen") not in chain:
+                chain.append((m, "imagen"))
 
         def _extract(resp) -> bytes:
             parts = resp.candidates[0].content.parts or []
@@ -135,21 +142,35 @@ class Gemini:
                 inline = getattr(part, "inline_data", None)
                 if inline and inline.data and str(inline.mime_type or "").startswith("image/"):
                     return inline.data
-            kinds = [type(getattr(p, "inline_data", None)).__name__ for p in parts]
-            raise GeminiError(f"no image part in response (parts={len(parts)}, kinds={kinds})")
+            raise GeminiError(f"no image part (parts={len(parts)})")
 
-        attempts = [
-            ("plain", lambda: self.client.models.generate_content(model=model, contents=prompt)),
-            ("modalities", lambda: self.client.models.generate_content(
-                model=model, contents=prompt,
-                config={"response_modalities": ["TEXT", "IMAGE"]})),
-        ]
+        def _via_content(m: str, modal: bool) -> bytes:
+            cfg = {"response_modalities": ["TEXT", "IMAGE"]} if modal else None
+            resp = (self.client.models.generate_content(model=m, contents=prompt, config=cfg)
+                    if cfg else self.client.models.generate_content(model=m, contents=prompt))
+            return _extract(resp)
+
+        def _via_imagen(m: str) -> bytes:
+            r = self.client.models.generate_images(
+                model=m, prompt=prompt,
+                config={"number_of_images": 1, "aspect_ratio": "9:16"})
+            imgs = getattr(r, "generated_images", None) or []
+            if not imgs:
+                raise GeminiError("no generated_images")
+            return imgs[0].image.image_bytes
+
         errors: list[str] = []
-        for name, fn in attempts:
-            try:
-                resp = with_retries(fn, attempts=2, what=f"{model} image ({name})")
-                return _extract(resp)
-            except Exception as exc:  # noqa: BLE001 — try next shape
-                errors.append(f"{name}: {str(exc)[:160]}")
-        print(f"    [image-diag] {' | '.join(errors)}")
+        for m, method in chain:
+            variants = ([(True,), (False,)] if method == "content" else [(None,)])
+            for v in variants:
+                try:
+                    if method == "content":
+                        return _via_content(m, modal=v[0])
+                    return _via_imagen(m)
+                except Exception as exc:  # noqa: BLE001 — try next combo
+                    label = f"{m}" + ("/modal" if v and v[0] else "")
+                    errors.append(f"{label}: {str(exc)[:110]}")
+        print(f"    [image-diag] all {len(errors)} attempts failed -> poster fallback")
+        for e in errors:
+            print(f"      - {e}")
         return None
