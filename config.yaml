@@ -4,8 +4,7 @@
 channel:
   # REQUIRED — what your channel is about. The AI picks a fresh topic in this
   # niche every day and never repeats one it already used.
-Islamic history and the golden age of Muslim civilization: forgotten inventions, legendary scholars, lost cities, and the surprising true stories behind famous legend
-  # Style profile shapes HOW the script is written (see shorts/scriptgen.py):
+  niche: "Islamic history and the golden age of Muslim civilization: forgotten inventions, legendary scholars, lost cities, and the surprising true stories behind famous legends"  # Style profile shapes HOW the script is written (see shorts/scriptgen.py):
   #   vox  = explainer journalism (question hook, context -> twist -> insight -> so what)
   #   facts = fast punchy fact list  |  (empty) = generic viral style
   style: "vox"
