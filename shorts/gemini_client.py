@@ -69,6 +69,9 @@ class Gemini:
         self.cfg = cfg
         self.limits = cfg["limits"]
         self.client = genai.Client(api_key=api_key)
+        # image-model memoization: remember what works, skip what doesn't
+        self._image_ok: tuple[str, str] | None = None
+        self._image_skip: set[tuple[str, str]] = set()
 
     # ------------------------------------------------------------- text/JSON
     def json_text(self, prompt: str, temperature: float = 1.0) -> dict:
@@ -124,13 +127,18 @@ class Gemini:
     def image_png(self, prompt: str) -> bytes | None:
         """Generate one image; returns image bytes or None (poster fallback).
 
-        "Nano Banana" (Gemini 2.5 Flash Image) first, then fallbacks —
-        availability differs per key/region; prints diagnostics when all fail.
+        "Nano Banana" (Gemini 2.5 Flash Image) first, then fallbacks.
+        Memoizes the working model, skips dead ones (404), and stops early —
+        so the daily image quota is never wasted on retries.
         """
         first = self.limits["gemini_image_model"]
         chain: list[tuple[str, str]] = []  # (model, method)
+        # memoized winner first (0 wasted calls on scenes 2..n)
+        if self._image_ok:
+            chain.append(self._image_ok)
+        # "Nano Banana" next (both IDs), then fallbacks
         for m in [
-            "gemini-2.5-flash-image-preview",    # Nano Banana (launch ID)
+            "gemini-2.5-flash-image-preview",   # Nano Banana (launch ID)
             "gemini-2.5-flash-image",            # Nano Banana (stable alias)
             first or "",
             "gemini-2.0-flash-preview-image-generation",
@@ -166,15 +174,24 @@ class Gemini:
 
         errors: list[str] = []
         for m, method in chain:
+            if (m, method) in self._image_skip:
+                continue
             variants = ([(True,), (False,)] if method == "content" else [(None,)])
             for v in variants:
                 try:
                     if method == "content":
-                        return _via_content(m, modal=v[0])
-                    return _via_imagen(m)
+                        data = _via_content(m, modal=v[0])
+                    else:
+                        data = _via_imagen(m)
+                    self._image_ok = (m, method)
+                    return data
                 except Exception as exc:  # noqa: BLE001 — try next combo
                     label = f"{m}" + ("/modal" if v and v[0] else "")
                     errors.append(f"{label}: {str(exc)[:110]}")
+                    s = str(exc).upper()
+                    if "404" in s or "NOT_FOUND" in s:
+                        self._image_skip.add((m, method))  # dead model, skip from now on
+                        break  # model doesn't exist — no point trying its other variants
         print(f"    [image-diag] all {len(errors)} attempts failed -> poster fallback")
         for e in errors:
             print(f"      - {e}")
