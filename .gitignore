@@ -1,0 +1,17 @@
+# secrets & local env
+.env
+*.clientsecret.json
+client_secret*.json
+
+# generated videos / intermediates
+outputs/
+state/cache/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# workflows need a token with the 'workflows' permission to push;
+# activate them from workflow-files/ (see its README)
+.github/

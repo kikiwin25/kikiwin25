@@ -1,0 +1,14 @@
+# --- AI (all Google AI / Gemini) ---
+google-genai>=1.16
+
+# --- YouTube upload ---
+google-api-python-client>=2.100
+google-auth>=2.30
+google-auth-oauthlib>=1.2
+
+# --- video assembly ---
+Pillow>=10.0
+PyYAML>=6.0
+python-dotenv>=1.0
+# NOTE: ffmpeg is NOT a pip package. GitHub runners have it preinstalled.
+# Locally: install ffmpeg (apt/brew/choco) or run:  pip install imageio-ffmpeg

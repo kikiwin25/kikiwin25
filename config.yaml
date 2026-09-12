@@ -1,0 +1,60 @@
+# ================= YouTube Shorts automation — settings =================
+# Everything the bot does is controlled from this file. Edit, commit, done.
+
+channel:
+  # REQUIRED — what your channel is about. The AI picks a fresh topic in this
+  # niche every day and never repeats one it already used.
+  niche: "Vox-style explainers: design, economics, geography, internet culture, and why-trends-happen stories"
+  # Style profile shapes HOW the script is written (see shorts/scriptgen.py):
+  #   vox  = explainer journalism (question hook, context -> twist -> insight -> so what)
+  #   facts = fast punchy fact list  |  (empty) = generic viral style
+  style: "vox"
+  # Language for script + voice + captions. e.g. en, ar, fr, es, de, tr...
+  language: "ar"
+
+video:
+  target_seconds: 40          # rough narration length (Shorts max = 60)
+  scenes: 3                   # number of background images (1-4)
+  scene_style: "Vox-style flat editorial illustration: bold minimalist vector shapes, paper-cutout layers, muted background with one strong accent color, subtle film grain, infographic composition, vertical 9:16"
+  max_words_per_caption: 3    # words shown per caption pop
+  uppercase_captions: false   # Vox style = clean sentence case
+  resolution: [1080, 1920]    # 9:16 vertical
+  fps: 30
+
+tts:
+  # Gemini voices: Puck (upbeat male), Kore (firm female), Charon (informative
+  # male), Leda (youthful female), Fenrir, Aoede, Callirrhoe, Autonoe...
+  voice: "Kore"
+  style: "a confident, energetic narrator speaking clear Modern Standard Arabic (فصحى)"
+  gap_seconds: 0.18           # pause between sentences
+
+captions:
+  # Arabic captions need an Arabic font — the repo bundles Almarai (fonts/).
+  # For Latin-script languages switch back to "DejaVu Sans".
+  font: "Almarai"
+  # ffmpeg also searches the repo fonts/ folder automatically (fontsdir).         # must be installed on the machine that renders
+  font_size: 84
+  margin_v: 420               # distance from bottom (keep clear of Shorts UI)
+  spoken_color: "FFEB3B"      # yellow fill for the word being spoken
+  unspoken_color: "FFFFFF"
+  outline_color: "101010"
+
+upload:
+  privacy: "public"           # public | unlisted | private | schedule
+  schedule_offset_minutes: 15 # used when privacy = schedule (min ~15)
+  category_id: "24"           # 24=Entertainment 27=Education 22=People&Blogs
+  made_for_kids: false
+  playlist_id: ""             # optional: playlist ID to add the video to
+  append_shorts_hashtag: false
+
+music:
+  enabled: false              # optional background loop
+  file: "assets/music.mp3"    # drop a royalty-free track here and enable
+  volume: 0.08
+
+limits:
+  gemini_text_model: "gemini-2.5-flash"
+  gemini_image_model: "gemini-2.5-flash-image"
+  gemini_tts_model: "gemini-2.5-flash-preview-tts"
+  max_images: 3
+  max_sentences: 14
