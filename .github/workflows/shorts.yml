@@ -2,10 +2,12 @@ name: YouTube Shorts automation
 
 on:
   schedule:
-    # Daily at 16:00 UTC = 17:00 Marrakesh. Change me — https://crontab.guru
+    # Three shorts a day (Marrakech = UTC+1): 10:00, 15:00, 20:00 local time.
     # NOTE: GitHub scheduled workflows can drift ~15 min and are paused after
-    # 60 days of repo inactivity; workflow_dispatch below always works.
-    - cron: "0 16 * * *"
+    # 60 days of repo inactivity; the daily state commits prevent that.
+    - cron: "0 9 * * *"
+    - cron: "0 14 * * *"
+    - cron: "0 19 * * *"
   workflow_dispatch:
     inputs:
       topic:
