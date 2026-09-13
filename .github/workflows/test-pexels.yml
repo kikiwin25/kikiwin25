@@ -1,0 +1,23 @@
+name: Pexels key test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tester la clé Pexels
+        run: |
+          CODE=$(curl -s -o /tmp/px.json -w "%{http_code}" \
+            -H "Authorization: ${{ secrets.PEXELS_API_KEY }}" \
+            "https://api.pexels.com/videos/search?query=mosque&orientation=portrait&per_page=1")
+          echo "HTTP status: $CODE"
+          if [ "$CODE" = "200" ]; then
+            echo "=== CLE VALIDE — Pexels repond ! ==="
+          else
+            echo "=== CLE REFUSEE — reponse de Pexels: ==="
+            head -c 300 /tmp/px.json
+            echo
+            echo ">>> Va sur pexels.com/api, copie la cle SANS guillemets SANS espaces, puis mets a jour le secret"
+          fi
