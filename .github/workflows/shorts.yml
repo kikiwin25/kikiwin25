@@ -38,6 +38,13 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Restore TikTok tokens cache
+        uses: actions/cache@v4
+        with:
+          path: .tiktok_token
+          key: tiktok-tok-${{ github.run_id }}
+          restore-keys: tiktok-tok-
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -56,6 +63,15 @@ jobs:
           [ -n "$DRY_RUN" ] && ARGS+=(--dry-run)
           [ -n "$TOPIC" ] && ARGS+=(--topic "$TOPIC")
           python -m shorts.run "${ARGS[@]+${ARGS[@]}}"
+
+      - name: Cross-post to TikTok (private, 1 click to publish)
+        if: success() && github.event.inputs.dry_run != 'true'
+        env:
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+        run: |
+          FINAL=$(ls -t outputs/*/final.mp4 | head -1)
+          python -m shorts.tiktok "$FINAL"
 
       - name: Upload video artifact (downloadable from this run)
         if: always()
