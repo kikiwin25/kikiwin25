@@ -26,7 +26,13 @@ def _is_retryable(exc: Exception) -> bool:
     return any(tok in s for tok in _RETRYABLE_TOKENS)
 
 
-def with_retries(fn: Callable[[], T], attempts: int = 4, what: str = "api call") -> T:
+def with_retries(fn: Callable[[], T], attempts: int = 6, what: str = "api call") -> T:
+    """Retry transient API errors patiently.
+
+    Free-tier 429s usually clear within 30-60 s (per-minute quota), so the
+    backoff now goes 10 -> 20 -> 40 -> 80 -> 90 s (~4 min total patience)
+    instead of giving up after ~40 s like before.
+    """
     last: Exception | None = None
     for i in range(attempts):
         try:
@@ -35,8 +41,9 @@ def with_retries(fn: Callable[[], T], attempts: int = 4, what: str = "api call")
             last = exc
             if not _is_retryable(exc) or i == attempts - 1:
                 raise
-            wait = min(6.0 * (2 ** i) + random.random() * 2, 60.0)
-            print(f"    [retry] {what} failed ({str(exc)[:120]}) — retrying in {wait:.0f}s")
+            wait = min(10.0 * (2 ** i) + random.random() * 3, 90.0)
+            print(f"    [retry] {what} failed ({str(exc)[:120]}) — retrying in {wait:.0f}s "
+                  f"(attempt {i + 1}/{attempts})")
             time.sleep(wait)
     raise last  # pragma: no cover
 
