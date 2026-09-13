@@ -1,15 +1,17 @@
 """Stock-video backgrounds from Pexels (free API, free commercial use).
 
-Flow: Gemini picks 2 short English search keywords per scene from the script
--> we search Pexels videos (portrait HD first, any orientation as backup),
-avoiding previously used clips (state/used_pexels.json) -> download the best
-match -> trim/scale with ffmpeg.
+Flow: 2 English search keywords picked LOCALLY per scene (rotating list, no
+Gemini call — the daily text quota is reserved for the script) -> we search
+Pexels videos (portrait HD first, any orientation as backup), avoiding
+previously used clips (state/used_pexels.json) -> download the best match ->
+trim/scale with ffmpeg.
 
-Cascade: Pexels -> Nano Banana images -> editorial poster. A video never fails
-because of one provider.
+Cascade: Pexels -> Pollinations AI image -> editorial poster. A video never
+fails because of one provider.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.parse
 import urllib.request
@@ -27,6 +29,12 @@ FALLBACK_KEYWORDS = [
     "night sky stars",
     "old city streets",
     "candles dark",
+    "mosque silhouette",
+    "sand dunes",
+    "old map",
+    "river sunset",
+    "incense smoke",
+    "old wooden door",
 ]
 
 
@@ -55,29 +63,14 @@ def _download(url: str, dest: Path, api_key: str) -> None:
 
 
 def keywords_for_scene(gem, script, scene_idx: int, n_scenes: int) -> list[str]:
-    """Ask Gemini for 2 concrete ENGLISH stock-search keywords for a scene."""
-    lines = script.narration
-    per = max(1, (len(lines) + n_scenes - 1) // n_scenes)
-    excerpt = " ".join(lines[scene_idx * per : (scene_idx + 1) * per])[:400]
-    i = (scene_idx * 2) % len(FALLBACK_KEYWORDS)
-    fallback = [FALLBACK_KEYWORDS[i], FALLBACK_KEYWORDS[(i + 1) % len(FALLBACK_KEYWORDS)]]
-    if gem is None:
-        return fallback
-    try:
-        data = gem.json_text(
-            "You pick stock-footage search keywords. The scene narrates: "
-            f"\"{excerpt}\"\n"
-            "Give 2 short keywords (1-2 words each) of VISUAL things to film "
-            "(places, objects, nature - no people close-ups, no text). "
-            "STRICT RULES: English only, ASCII letters only, no quotes. "
-            'Return STRICT JSON: {"k1": "...", "k2": "..."}',
-            temperature=0.4)
-        kws = [str(data.get("k1", "")).strip().strip('"'),
-               str(data.get("k2", "")).strip().strip('"')]
-        kws = [k for k in kws if k and len(k) < 40 and k.isascii()]
-        return kws or fallback
-    except Exception:  # noqa: BLE001 — keywords are best-effort
-        return fallback
+    """Local stock-search keywords — ZERO Gemini calls (the free daily text
+    quota is reserved for the script itself). Rotates a hand-picked list that
+    fits the channel niche; the offset is derived from the script text so
+    every video gets a different keyword mix. `gem` kept for call-compat."""
+    digest = hashlib.sha1(" ".join(script.narration).encode()).hexdigest()
+    off = int(digest[:4], 16)
+    i = (off + scene_idx * 2) % len(FALLBACK_KEYWORDS)
+    return [FALLBACK_KEYWORDS[i], FALLBACK_KEYWORDS[(i + 1) % len(FALLBACK_KEYWORDS)]]
 
 
 def _usable_files(v: dict) -> list[dict]:
