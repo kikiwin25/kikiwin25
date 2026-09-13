@@ -13,28 +13,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Tester la clé Pexels
+      - name: Install deps
+        run: pip install -q pyyaml
+
+      - name: Tests (curl + code reel du bot)
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: |
-          CODE=$(curl -s -o /tmp/px.json -w "%{http_code}" \
-            -H "Authorization: ${{ secrets.PEXELS_API_KEY }}" \
-            "https://api.pexels.com/videos/search?query=mosque&orientation=portrait&per_page=1")
           {
             echo "date: $(date -u)"
-            echo "status: $CODE"
-            if [ "$CODE" = "200" ]; then
-              echo "result: CLE VALIDE — Pexels repond"
-            else
-              echo "result: CLE REFUSEE"
-              echo "reponse_pexels:"
-              head -c 200 /tmp/px.json
-            fi
-          } > state/pexels_test.txt
+            echo "longueur_cle: ${#PEXELS_API_KEY}"
+            echo ""
+            echo "=== TEST 1 : appel direct (curl) ==="
+            curl -s -o /tmp/px.json -w "curl status: %{http_code}\n" \
+              -H "Authorization: $PEXELS_API_KEY" \
+              "https://api.pexels.com/videos/search?query=mosque&orientation=portrait&per_page=1"
+            head -c 150 /tmp/px.json
+            echo
+            echo ""
+            echo "=== TEST 2 : le code reel du bot ==="
+            python3 -c 'import sys; sys.path.insert(0, "."); from pathlib import Path; from shorts.config import env; from shorts.pexels import fetch_pexels_video; print("cle visible par le bot:", "OUI" if env("PEXELS_API_KEY") else "NON"); r = fetch_pexels_video(["ancient architecture"], 0, Path("state/_debug.mp4"), {}); print("telechargement:", r); print("taille:", r.stat().st_size) if r else None; (r.unlink() if r else None)'
+          } > state/pexels_test.txt 2>&1
           cat state/pexels_test.txt
 
       - name: Ecrire le resultat dans le repo
+        if: always()
         run: |
           git config user.name "shorts-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add state/pexels_test.txt
-          git commit -m "chore(state): pexels key test [skip ci]"
+          git diff --cached --quiet || git commit -m "chore(state): pexels deep test [skip ci]"
           git push
