@@ -3,21 +3,38 @@ name: Pexels key test
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Tester la clé Pexels
         run: |
           CODE=$(curl -s -o /tmp/px.json -w "%{http_code}" \
             -H "Authorization: ${{ secrets.PEXELS_API_KEY }}" \
             "https://api.pexels.com/videos/search?query=mosque&orientation=portrait&per_page=1")
-          echo "HTTP status: $CODE"
-          if [ "$CODE" = "200" ]; then
-            echo "=== CLE VALIDE — Pexels repond ! ==="
-          else
-            echo "=== CLE REFUSEE — reponse de Pexels: ==="
-            head -c 300 /tmp/px.json
-            echo
-            echo ">>> Va sur pexels.com/api, copie la cle SANS guillemets SANS espaces, puis mets a jour le secret"
-          fi
+          {
+            echo "date: $(date -u)"
+            echo "status: $CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "result: CLE VALIDE — Pexels repond"
+            else
+              echo "result: CLE REFUSEE"
+              echo "reponse_pexels:"
+              head -c 200 /tmp/px.json
+            fi
+          } > state/pexels_test.txt
+          cat state/pexels_test.txt
+
+      - name: Ecrire le resultat dans le repo
+        run: |
+          git config user.name "shorts-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/pexels_test.txt
+          git commit -m "chore(state): pexels key test [skip ci]"
+          git push
