@@ -1,14 +1,17 @@
 """Step 3 — background visuals.
 
 Per-scene cascade: Pexels stock clip -> Gemini "Nano Banana" image ->
-rich editorial poster rendered with Pillow. The video never fails because
-one provider is down or out of quota.
+Pollinations free AI image (no key, no quota) -> rich editorial poster
+rendered with Pillow. The video never fails because one provider is down
+or out of quota.
 """
 from __future__ import annotations
 
 import hashlib
 import io
 import random
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
@@ -61,6 +64,29 @@ def math_sin(x: float) -> float:
     import math
 
     return 0.5 + 0.5 * math.sin(x * 6.283)
+
+
+def _pollinations_image(prompt: str, out: Path, seed: int) -> bool:
+    """Free backup AI image via pollinations.ai — no API key, no quota.
+
+    Returns True (and writes `out`) on success, False on any failure so the
+    cascade can continue to the poster fallback.
+    """
+    url = ("https://image.pollinations.ai/prompt/"
+           + urllib.parse.quote(prompt[:600])
+           + f"?width=864&height=1536&nologo=true&seed={seed}")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            data = r.read()
+        if len(data) < 10_000:  # too small = error page, not a real image
+            print(f"    [pollinations] response too small ({len(data)} B)")
+            return False
+        _normalize(data, out)
+        return True
+    except Exception as exc:  # noqa: BLE001 — best-effort provider
+        print(f"    [pollinations] failed ({str(exc)[:100]})")
+        return False
 
 
 def _rich_gradient(palette, out: Path, variant: int) -> None:
@@ -118,7 +144,7 @@ def _rich_gradient(palette, out: Path, variant: int) -> None:
 
 
 def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> list[Path]:
-    """Per scene: Pexels stock clip -> Nano Banana image -> editorial poster."""
+    """Per scene: Pexels clip -> Nano Banana -> Pollinations -> poster."""
     from .pexels import fetch_pexels_video, keywords_for_scene  # lazy import
 
     n = max(1, min(int(cfg["video"].get("scenes", 3)), int(cfg["limits"].get("max_images", 3))))
@@ -141,10 +167,11 @@ def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> l
                 print(f"  [visual] scene {i + 1}/{n}: pexels stock clip")
                 continue
 
-        # ---- 2) Nano Banana image ----
+        # ---- 2) Nano Banana image (cached) ----
         h = hashlib.sha1(prompt.encode()).hexdigest()[:24]
         cached = CACHE_DIR / f"img_{h}.png"
         done = False
+        source = ""
         if gem is not None:
             if cached.exists():
                 try:
@@ -162,13 +189,23 @@ def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> l
                         done = True
                     except Exception as exc:  # noqa: BLE001 — unreadable image
                         print(f"    [warn] generated image unusable ({str(exc)[:100]})")
+            if done:
+                source = "gemini image"
+
+        # ---- 3) Pollinations free AI image (no key, no quota) ----
+        if not done:
+            print(f"    [scene {i + 1}] pollinations backup image...")
+            if _pollinations_image(prompt, out.with_suffix(".png"), seed=i * 17 + 3):
+                done = True
+                source = "pollinations image"
+
         if done:
             paths.append(out.with_suffix(".png"))
             img_count += 1
-            print(f"  [visual] scene {i + 1}/{n}: gemini image")
+            print(f"  [visual] scene {i + 1}/{n}: {source}")
             continue
 
-        # ---- 3) Editorial poster ----
+        # ---- 4) Editorial poster ----
         _rich_gradient(PALETTES[i % len(PALETTES)], out.with_suffix(".png"), i)
         print(f"  [visual] scene {i + 1}/{n}: editorial fallback poster")
         paths.append(out.with_suffix(".png"))
