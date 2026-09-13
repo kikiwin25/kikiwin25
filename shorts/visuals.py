@@ -1,9 +1,10 @@
 """Step 3 — background visuals.
 
-Per-scene cascade: Pexels stock clip -> Gemini "Nano Banana" image ->
-Pollinations free AI image (no key, no quota) -> rich editorial poster
-rendered with Pillow. The video never fails because one provider is down
-or out of quota.
+Per-scene cascade: Pexels stock clip -> Pollinations free AI image (no key,
+no quota) -> rich editorial poster rendered with Pillow. The video never
+fails because one provider is down or out of quota.
+
+Gemini is NOT used for images anymore — text/script only.
 """
 from __future__ import annotations
 
@@ -66,11 +67,11 @@ def math_sin(x: float) -> float:
     return 0.5 + 0.5 * math.sin(x * 6.283)
 
 
-def _pollinations_image(prompt: str, out: Path, seed: int) -> bool:
-    """Free backup AI image via pollinations.ai — no API key, no quota.
+def _pollinations_image(prompt: str, seed: int) -> bytes | None:
+    """Free AI image via pollinations.ai — no API key, no quota, no signup.
 
-    Returns True (and writes `out`) on success, False on any failure so the
-    cascade can continue to the poster fallback.
+    Returns image bytes, or None on any failure so the cascade can continue
+    to the poster fallback.
     """
     url = ("https://image.pollinations.ai/prompt/"
            + urllib.parse.quote(prompt[:600])
@@ -81,12 +82,11 @@ def _pollinations_image(prompt: str, out: Path, seed: int) -> bool:
             data = r.read()
         if len(data) < 10_000:  # too small = error page, not a real image
             print(f"    [pollinations] response too small ({len(data)} B)")
-            return False
-        _normalize(data, out)
-        return True
+            return None
+        return data
     except Exception as exc:  # noqa: BLE001 — best-effort provider
         print(f"    [pollinations] failed ({str(exc)[:100]})")
-        return False
+        return None
 
 
 def _rich_gradient(palette, out: Path, variant: int) -> None:
@@ -144,7 +144,11 @@ def _rich_gradient(palette, out: Path, variant: int) -> None:
 
 
 def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> list[Path]:
-    """Per scene: Pexels clip -> Nano Banana -> Pollinations -> poster."""
+    """Per scene: Pexels clip -> Pollinations AI image -> poster.
+
+    Gemini is never called for images (text/script only). The `gem` argument
+    is still used for the tiny English stock-keyword picks (3 text calls).
+    """
     from .pexels import fetch_pexels_video, keywords_for_scene  # lazy import
 
     n = max(1, min(int(cfg["video"].get("scenes", 3)), int(cfg["limits"].get("max_images", 3))))
@@ -167,42 +171,35 @@ def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> l
                 print(f"  [visual] scene {i + 1}/{n}: pexels stock clip")
                 continue
 
-        # ---- 2) Nano Banana image (cached) ----
+        # ---- 2) cached Pollinations image ----
         h = hashlib.sha1(prompt.encode()).hexdigest()[:24]
         cached = CACHE_DIR / f"img_{h}.png"
         done = False
-        source = ""
-        if gem is not None:
-            if cached.exists():
-                try:
-                    _normalize(cached.read_bytes(), out.with_suffix(".png"))
-                    done = True
-                except Exception:  # noqa: BLE001 — corrupt cache
-                    cached.unlink(missing_ok=True)
-            if not done:
-                data = gem.image_png(prompt)
-                if data:
-                    try:
-                        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-                        cached.write_bytes(data)
-                        _normalize(data, out.with_suffix(".png"))
-                        done = True
-                    except Exception as exc:  # noqa: BLE001 — unreadable image
-                        print(f"    [warn] generated image unusable ({str(exc)[:100]})")
-            if done:
-                source = "gemini image"
+        if cached.exists():
+            try:
+                _normalize(cached.read_bytes(), out.with_suffix(".png"))
+                done = True
+                print(f"  [visual] scene {i + 1}/{n}: pollinations image (cache)")
+            except Exception:  # noqa: BLE001 — corrupt cache
+                cached.unlink(missing_ok=True)
 
         # ---- 3) Pollinations free AI image (no key, no quota) ----
         if not done:
-            print(f"    [scene {i + 1}] pollinations backup image...")
-            if _pollinations_image(prompt, out.with_suffix(".png"), seed=i * 17 + 3):
-                done = True
-                source = "pollinations image"
+            print(f"    [scene {i + 1}] pollinations image...")
+            data = _pollinations_image(prompt, seed=i * 17 + 3)
+            if data:
+                try:
+                    _normalize(data, out.with_suffix(".png"))
+                    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    cached.write_bytes(data)
+                    done = True
+                except Exception as exc:  # noqa: BLE001 — unreadable image
+                    print(f"    [warn] pollinations image unusable ({str(exc)[:80]})")
 
         if done:
             paths.append(out.with_suffix(".png"))
             img_count += 1
-            print(f"  [visual] scene {i + 1}/{n}: {source}")
+            print(f"  [visual] scene {i + 1}/{n}: pollinations image")
             continue
 
         # ---- 4) Editorial poster ----
@@ -210,7 +207,7 @@ def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> l
         print(f"  [visual] scene {i + 1}/{n}: editorial fallback poster")
         paths.append(out.with_suffix(".png"))
 
-    # safety net: nearly-black AI images get replaced (stock clips skipped)
+    # safety net: nearly-black images get replaced (stock clips skipped)
     for i, p in enumerate(paths):
         if p.suffix != ".png":
             continue
