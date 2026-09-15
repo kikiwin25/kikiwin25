@@ -1,0 +1,45 @@
+name: TikTok connect
+
+on:
+  workflow_dispatch:
+    inputs:
+      auth_code:
+        description: "The 'code' shown on the callback page after approving"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  connect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore TikTok tokens cache
+        uses: actions/cache@v4
+        with:
+          path: .tiktok_token
+          key: tiktok-tok-${{ github.run_id }}
+          restore-keys: tiktok-tok-
+
+      - name: Echanger le code contre les jetons
+        env:
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          AUTH_CODE: ${{ github.event.inputs.auth_code }}
+        run: |
+          pip install -q pyyaml
+          echo "Pour (re)autorisé l'app, ouvre cette URL dans ton navigateur :"
+          python3 -c "import sys; sys.path.insert(0,'.'); from shorts.tiktok import authorize_url; import os; print(authorize_url(os.environ['TIKTOK_CLIENT_KEY']))"
+          python3 -c "
+          import sys, os; sys.path.insert(0, '.')
+          from shorts.tiktok import exchange_code
+          tok = exchange_code(os.environ['AUTH_CODE'])
+          print('JETONS OBTENUS — expire:', __import__('time').strftime('%Y-%m-%d %H:%M UTC', __import__('time').gmtime(tok['expires_at'])))
+          print('C est fait ! Les 3 prochains crons deposent aussi sur TikTok (en prive).')
+          "
+
+      - name: Resultat
+        run: ls -la .tiktok_token && echo "Jetons bien dans le cache privé des Actions."
