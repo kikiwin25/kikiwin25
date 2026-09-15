@@ -1,18 +1,19 @@
-"""Stock-video backgrounds from Pexels (free API, free commercial use).
+"""Real stock visuals from Pexels (free API, free commercial use).
 
-Flow: 2 English search keywords picked LOCALLY per scene (rotating list, no
-Gemini call — the daily text quota is reserved for the script) -> we search
-Pexels videos (portrait HD first, any orientation as backup), avoiding
-previously used clips (state/used_pexels.json) -> download the best match ->
-trim/scale with ffmpeg.
+Priority per scene:
+  1. Pexels VIDEO clip (portrait HD first, any orientation as backup)
+  2. Pexels PHOTO (real photography — ffmpeg adds the Ken Burns zoom)
+  3. (handled in visuals.py) Pollinations AI image -> editorial poster
 
-Cascade: Pexels -> Pollinations AI image -> editorial poster. A video never
-fails because of one provider.
+Keywords are picked LOCALLY (rotating niche list, zero Gemini calls).
+Every attempt updates state/pexels_status.json with a short diagnostic
+(key length, last state) so the result can be read directly from the repo.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -20,7 +21,9 @@ from pathlib import Path
 from .config import REPO_ROOT, env, load_json, save_json
 
 API_URL = "https://api.pexels.com/videos/search"
+PHOTO_URL = "https://api.pexels.com/v1/search"
 USED_FILE = REPO_ROOT / "state" / "used_pexels.json"
+STATUS_FILE = REPO_ROOT / "state" / "pexels_status.json"
 
 FALLBACK_KEYWORDS = [
     "ancient architecture",
@@ -40,6 +43,25 @@ FALLBACK_KEYWORDS = [
 
 class PexelsError(RuntimeError):
     pass
+
+
+def _status(state: str, detail: str = "") -> None:
+    """Write a small diagnostic file into state/ (committed by the workflow)."""
+    try:
+        key = env("PEXELS_API_KEY", required=False)
+        data = load_json(STATUS_FILE, {})
+        data.update({
+            "last_run": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
+            "key_len": len(key or ""),
+            "state": state,
+        })
+        if detail:
+            data["detail"] = detail[:140]
+        else:
+            data.pop("detail", None)
+        save_json(STATUS_FILE, data)
+    except Exception:  # noqa: BLE001 — diagnostics must never crash the bot
+        pass
 
 
 def _get(url: str, params: dict, api_key: str) -> dict:
@@ -63,23 +85,18 @@ def _download(url: str, dest: Path, api_key: str) -> None:
 
 
 def keywords_for_scene(gem, script, scene_idx: int, n_scenes: int) -> list[str]:
-    """Local stock-search keywords — ZERO Gemini calls (the free daily text
-    quota is reserved for the script itself). Rotates a hand-picked list that
-    fits the channel niche; the offset is derived from the script text so
-    every video gets a different keyword mix. `gem` kept for call-compat."""
+    """Local stock-search keywords — ZERO Gemini calls. Rotates a hand-picked
+    list that fits the channel niche; the offset comes from the script text so
+    every video gets a different mix. `gem` kept for call-compat."""
     digest = hashlib.sha1(" ".join(script.narration).encode()).hexdigest()
     off = int(digest[:4], 16)
     i = (off + scene_idx * 2) % len(FALLBACK_KEYWORDS)
     return [FALLBACK_KEYWORDS[i], FALLBACK_KEYWORDS[(i + 1) % len(FALLBACK_KEYWORDS)]]
 
 
+# ------------------------------------------------------------------ videos
 def _usable_files(v: dict) -> list[dict]:
-    """HD mp4 variants of one video, smallest first.
-
-    HD test: portrait clips need height >= 1280, landscape clips need
-    width >= 1280 (a landscape Full-HD 1920x1080 is perfectly usable
-    since ffmpeg scale-crops it to the 1080x1920 canvas anyway).
-    """
+    """HD mp4 variants of one video, smallest first."""
     files = [f for f in v.get("video_files", [])
              if f.get("file_type") == "video/mp4"
              and ((f.get("height") or 0) >= 1280
@@ -99,7 +116,7 @@ def _collect(data: dict, used: set) -> list[tuple]:
     """Candidates as (portrait_first, height, id, link), best order first."""
     cands = []
     for v in data.get("videos", []):
-        if v.get("id") in used or (v.get("duration") or 0) < 8:
+        if f"v{v.get('id')}" in used or (v.get("duration") or 0) < 8:
             continue
         files = _usable_files(v)
         if not files:
@@ -115,33 +132,87 @@ def fetch_pexels_video(keywords: list[str], idx: int, out: Path, cfg: dict) -> P
     """Search + download one HD clip. Portrait preferred, landscape fallback."""
     api_key = env("PEXELS_API_KEY", required=False)
     if not api_key:
+        _status("empty_key")
         return None
 
-    used = set(load_json(USED_FILE, {"ids": []}).get("ids", []))
+    used = {str(x) for x in load_json(USED_FILE, {"ids": []}).get("ids", [])}
     query = " ".join(keywords[:2])
     try:
         data = _search(api_key, query, "portrait")
         candidates = _collect(data, used)
         if not candidates:
-            print(f"    [pexels] no portrait clip for '{query}' — retrying any orientation")
             data = _search(api_key, query, None)
             candidates = _collect(data, used)
     except Exception as exc:  # noqa: BLE001
-        print(f"    [pexels] search failed ({str(exc)[:100]})")
+        print(f"    [pexels] video search failed ({str(exc)[:100]})")
+        _status("video_search_failed", str(exc))
         return None
 
     if not candidates:
-        print(f"    [pexels] no unused clip for '{query}'")
+        print(f"    [pexels] no video clip for '{query}' — will try photos")
         return None
 
     vid, link, kind = candidates[idx % len(candidates)]
     try:
         _download(link, out, api_key)
     except Exception as exc:  # noqa: BLE001
-        print(f"    [pexels] download failed ({str(exc)[:100]})")
+        print(f"    [pexels] video download failed ({str(exc)[:100]})")
+        _status("video_download_failed", str(exc))
         return None
 
-    used.add(vid)
-    save_json(USED_FILE, {"ids": sorted(used)[-500:]})
-    print(f"    [pexels] '{query}' -> clip #{vid} ({kind})")
+    used.add(f"v{vid}")
+    save_json(USED_FILE, {"ids": sorted(used)[-800:]})
+    _status("ok_video")
+    print(f"    [pexels] video '{query}' -> clip #{vid} ({kind})")
+    return out
+
+
+# ------------------------------------------------------------------ photos
+def fetch_pexels_photo(keywords: list[str], idx: int, out: Path, cfg: dict) -> Path | None:
+    """Download one real photo (JPG) to `out`. Caller converts to PNG."""
+    api_key = env("PEXELS_API_KEY", required=False)
+    if not api_key:
+        _status("empty_key")
+        return None
+
+    used = {str(x) for x in load_json(USED_FILE, {"ids": []}).get("ids", [])}
+    query = " ".join(keywords[:2])
+    try:
+        data = _get(PHOTO_URL, {
+            "query": query,
+            "orientation": "portrait",
+            "per_page": 15,
+            "page": 1,
+        }, api_key)
+    except Exception as exc:  # noqa: BLE001
+        print(f"    [pexels] photo search failed ({str(exc)[:100]})")
+        _status("photo_search_failed", str(exc))
+        return None
+
+    photos = []
+    for p in data.get("photos", []):
+        pid = p.get("id")
+        if not pid or f"p{pid}" in used:
+            continue
+        src = p.get("src") or {}
+        link = src.get("large2x") or src.get("large") or src.get("portrait")
+        if link:
+            photos.append((pid, link))
+    if not photos:
+        print(f"    [pexels] no photo for '{query}'")
+        _status("no_photo_results")
+        return None
+
+    pid, link = photos[idx % len(photos)]
+    try:
+        _download(link, out, api_key)
+    except Exception as exc:  # noqa: BLE001
+        print(f"    [pexels] photo download failed ({str(exc)[:100]})")
+        _status("photo_download_failed", str(exc))
+        return None
+
+    used.add(f"p{pid}")
+    save_json(USED_FILE, {"ids": sorted(used)[-800:]})
+    _status("ok_photo")
+    print(f"    [pexels] photo '{query}' -> #{pid}")
     return out
