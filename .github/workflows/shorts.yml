@@ -1,21 +1,42 @@
-name: TikTok connect
+name: YouTube Shorts automation
 
 on:
+  schedule:
+    # Three shorts a day (Marrakech = UTC+1): 10:00, 15:00, 20:00 local time.
+    # NOTE: GitHub scheduled workflows can drift ~15 min and are paused after
+    # 60 days of repo inactivity; the daily state commits prevent that.
+    - cron: "0 9 * * *"
+    - cron: "0 14 * * *"
+    - cron: "0 19 * * *"
   workflow_dispatch:
     inputs:
-      auth_code:
-        description: "The 'code' shown on the callback page after approving"
-        required: true
-        type: string
+      topic:
+        description: "Optional topic override (leave empty for AI choice)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Generate only, do NOT upload to YouTube"
+        type: boolean
+        default: false
+
+concurrency:
+  group: shorts
+  cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write   # needed to commit the state/ publish log back
 
 jobs:
-  connect:
-    runs-on: ubuntu-latest
+  produce:
+    runs-on: ubuntu-latest   # ffmpeg + DejaVu fonts are preinstalled here
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
 
       - name: Restore TikTok tokens cache
         uses: actions/cache@v4
@@ -24,22 +45,48 @@ jobs:
           key: tiktok-tok-${{ github.run_id }}
           restore-keys: tiktok-tok-
 
-      - name: Echanger le code contre les jetons
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate short (and upload unless dry run)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          TOPIC: ${{ github.event.inputs.topic }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '' }}
+        run: |
+          ARGS=()
+          [ -n "$DRY_RUN" ] && ARGS+=(--dry-run)
+          [ -n "$TOPIC" ] && ARGS+=(--topic "$TOPIC")
+          python -m shorts.run "${ARGS[@]+${ARGS[@]}}"
+
+      - name: Cross-post to TikTok (private, 1 click to publish)
+        if: success() && github.event.inputs.dry_run != 'true'
         env:
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          AUTH_CODE: ${{ github.event.inputs.auth_code }}
         run: |
-          pip install -q pyyaml
-          echo "Pour (re)autorisé l'app, ouvre cette URL dans ton navigateur :"
-          python3 -c "import sys; sys.path.insert(0,'.'); from shorts.tiktok import authorize_url; import os; print(authorize_url(os.environ['TIKTOK_CLIENT_KEY']))"
-          python3 -c "
-          import sys, os; sys.path.insert(0, '.')
-          from shorts.tiktok import exchange_code
-          tok = exchange_code(os.environ['AUTH_CODE'])
-          print('JETONS OBTENUS — expire:', __import__('time').strftime('%Y-%m-%d %H:%M UTC', __import__('time').gmtime(tok['expires_at'])))
-          print('C est fait ! Les 3 prochains crons deposent aussi sur TikTok (en prive).')
-          "
+          FINAL=$(ls -t outputs/*/final.mp4 | head -1)
+          python -m shorts.tiktok "$FINAL"
 
-      - name: Resultat
-        run: ls -la .tiktok_token && echo "Jetons bien dans le cache privé des Actions."
+      - name: Upload video artifact (downloadable from this run)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: short-video
+          path: outputs/**/*.mp4
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Commit publish log (state/)
+        if: success()
+        run: |
+          git config user.name "shorts-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state
+          git diff --cached --quiet || git commit -m "chore(state): publish log [skip ci]"
+          git push
