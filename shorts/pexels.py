@@ -25,6 +25,11 @@ PHOTO_URL = "https://api.pexels.com/v1/search"
 USED_FILE = REPO_ROOT / "state" / "used_pexels.json"
 STATUS_FILE = REPO_ROOT / "state" / "pexels_status.json"
 
+# api.pexels.com blocks the default python-urllib User-Agent with 403 —
+# pretend to be a normal browser (the key itself stays in Authorization).
+BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
 FALLBACK_KEYWORDS = [
     "ancient architecture",
     "old books",
@@ -66,13 +71,20 @@ def _status(state: str, detail: str = "") -> None:
 
 def _get(url: str, params: dict, api_key: str) -> dict:
     full = f"{url}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(full, headers={"Authorization": api_key})
+    req = urllib.request.Request(full, headers={
+        "Authorization": api_key,
+        "User-Agent": BROWSER_UA,
+        "Accept": "application/json",
+    })
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
 def _download(url: str, dest: Path, api_key: str) -> None:
-    req = urllib.request.Request(url, headers={"Authorization": api_key})
+    req = urllib.request.Request(url, headers={
+        "Authorization": api_key,
+        "User-Agent": BROWSER_UA,
+    })
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".tmp")
     with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
