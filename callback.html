@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>TikTok connect — Hikayat Madhi</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0f1420;color:#eee;
+       display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0}
+  .card{max-width:700px;padding:40px;line-height:1.7}
+  code{background:#1d2740;padding:10px 16px;border-radius:8px;display:block;
+       font-size:1.15rem;color:#4fc3f7;word-break:break-all;margin:12px 0}
+  .warn{color:#ffb74d}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Étape 2 — copie le CODE ci-dessous</h1>
+  <div id="content">Lecture du code…</div>
+  <p class="warn">⏱️ Ce code expire en ~1 minute ! Copie-le PUIS va immédiatement sur
+  GitHub → <b>Actions → TikTok connect → Run workflow</b> → colle-le dans « auth_code » → Run.</p>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const err = q.get("error");
+  const code = q.get("code");
+  const el = document.getElementById("content");
+  if (err) {
+    el.innerHTML = "<b>Erreur renvoyée par TikTok :</b> " + err +
+      "<br>Refais l'autorisation depuis le début.";
+  } else if (code) {
+    el.innerHTML = "Ton code d'autorisation :<code>" + code + "</code>" +
+      '<button onclick="navigator.clipboard.writeText(\'' + code + '\')">📋 Copier le code</button>';
+  } else {
+    el.innerHTML = "Aucun code trouvé dans l'URL — refais l'autorisation.";
+  }
+</script>
+</body>
+</html>
