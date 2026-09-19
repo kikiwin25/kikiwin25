@@ -31,8 +31,8 @@ def _clean(s: str) -> str:
 
 def _enforce_limits(script: Script, cfg: dict) -> Script:
     max_sent = int(cfg["limits"].get("max_sentences", 14))
-    script.sentences = [s for s in script.sentences if s][:max_sent]
-    script.title = script.title.strip()[:100]          # YouTube hard limit
+    script.sentences = [s for s in script.sentences if s[:max_sent]]
+    script.title = script.title.strip()[:100]        # YouTube hard limit
     script.description = script.description.strip()[:4900]
     if cfg["upload"].get("append_shorts_hashtag"):
         script.description = (script.description + "\n\n#Shorts")[:5000]
@@ -62,11 +62,28 @@ covered recently, then write a complete short-video script for it.
 Recently used topics (avoid these and anything too similar):
 {used}
 
+THE HOOK (first spoken line) — the make-or-break 2 seconds:
+- Max 8 words. It must DROP the viewer INTO the story. It is NOT an announcement.
+- Use ONE of these formulas (rephrase, don't copy):
+  1. Shocking question   : "لماذا دفن ملوك أنضاء أحياء؟"
+  2. Unexpected number   : "7000 سنة والمدينة ما زالت تحت الرمال."
+  3. Kill a common belief: "كل ما تعرفه عن الأهرامات خطأ."
+  4. Drop into a scene   : "منتصف الليل، والجيش يقترب من المدينة."
+  5. Impossible contrast : "أعمى من بغداد... رسم خريطة العالم."
+- STRICTLY BANNED openings: "في هذا الفيديو", "اليوم سنتحدث عن", "مرحبا بكم",
+  "أهلا بكم", "تعالوا نتعرف", "سنخبركم", أي تحية أو إعلان عن الفيديو.
+
+THE TITLE:
+- Max 70 characters, curiosity-gap, factual (no lying clickbait).
+- Use one of these patterns: "لماذا ...؟" / "الحقيقة التي أخفيت عنك عن ..."
+  / "أغرب ... في التاريخ" / "المدينة التي ابتلعتها الصحراء" / "القصة الحقيقية وراء ..."
+- The title and the hook must be DIFFERENT sentences.
+
 Return STRICT JSON with exactly this shape:
 {{
   "topic": "short name of today's topic",
-  "title": "YouTube title, max 90 chars, curiosity-driven, no clickbait lies",
-  "hook": "first spoken line, max 9 words, must grab instantly",
+  "title": "YouTube title, max 70 chars, curiosity-driven, no clickbait lies",
+  "hook": "first spoken line, max 8 words, one of the hook formulas, no greeting",
   "sentences": ["8 to 12 short punchy spoken sentences, each max 14 words"],
   "cta": "final line: follow for more, max 8 words",
   "description": "1-3 sentence YouTube description",
@@ -78,6 +95,7 @@ Rules:
 - Spoken, natural style. No emojis, no stage directions, no hashtags inside
   spoken lines, no quotation marks around the lines themselves.
 - Facts must be accurate; if unsure, choose a topic you are certain about.
+- If a sentence would not survive being spoken over fast cuts, rewrite it shorter.
 """
 
 
@@ -88,7 +106,8 @@ STYLE_PROFILES = {
 Channel format: VOX-STYLE EXPLAINER (visual essay / explainer journalism).
 Write like smart, curious explainer journalism — precise, calm confidence, zero fluff.
 Structure the narration like a Vox video:
-- hook: a provocative question or bold counterintuitive claim (max 10 words)
+- hook: a provocative question or bold counterintuitive claim (max 8 words,
+  drop the viewer into the story — never announce the video)
 - sentences: follow the arc  CONTEXT (how did we get here) -> COMPLICATION
   (the twist most people don't know) -> INSIGHT (the real explanation, with a
   concrete example, number, or comparison) -> SO WHAT (why it matters to the viewer)
@@ -96,7 +115,7 @@ Structure the narration like a Vox video:
 """,
     "facts": """
 Channel format: FAST FACTS (punchy listicle energy).
-- hook: a shock claim or question (max 8 words)
+- hook: a shock claim or question (max 8 words, no greetings)
 - sentences: rapid-fire surprising facts, each self-contained, escalating wow factor
 - cta: quick follow-for-more line
 """,
@@ -134,9 +153,10 @@ def make_script(gem: Gemini, cfg: dict, topic_override: str | None, used: list[s
     script = _enforce_limits(script, cfg)
 
     words = sum(len(s.split()) for s in script.narration)
-    print(f"  topic:      {script.topic}")
-    print(f"  title:      {script.title}")
-    print(f"  narration:  {len(script.narration)} lines, {words} words")
+    print(f"  topic:    {script.topic}")
+    print(f"  title:    {script.title}")
+    print(f"  hook:     {script.hook}")
+    print(f"  narration: {len(script.narration)} lines, {words} words")
     return script
 
 
