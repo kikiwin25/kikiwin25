@@ -29,13 +29,18 @@ def _clean(s: str) -> str:
     return re.sub(r"[*_#`]+", "", (s or "")).strip()
 
 
+# Hashtags appended to every video description (Shorts discovery).
+# Keep it short: 5-6 relevant tags — YouTube ignores more than 60 per video.
+HASHTAG_PACK = "#Shorts #غرائب #قصص_حقيقية #غموض #اكسبلور #لغز"
+
+
 def _enforce_limits(script: Script, cfg: dict) -> Script:
     max_sent = int(cfg["limits"].get("max_sentences", 14))
     script.sentences = [s for s in script.sentences if s[:max_sent]]
     script.title = script.title.strip()[:100]        # YouTube hard limit
     script.description = script.description.strip()[:4900]
     if cfg["upload"].get("append_shorts_hashtag"):
-        script.description = (script.description + "\n\n#Shorts")[:5000]
+        script.description = (script.description + "\n\n" + HASHTAG_PACK)[:5000]
         if "#shorts" not in script.title.lower() and len(script.title) <= 92:
             script.title += " #Shorts"
     # YouTube tags: 500 chars total — trim from the end.
