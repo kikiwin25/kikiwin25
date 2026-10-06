@@ -4,7 +4,8 @@
 channel:
   # REQUIRED — what your channel is about. The AI picks a fresh topic in this
   # niche every day and never repeats one it already used.
-  niche: "Islamic history and the golden age of Muslim civilization: forgotten inventions, legendary scholars, lost cities, and the surprising true stories behind famous legends"  # Style profile shapes HOW the script is written (see shorts/scriptgen.py):
+  niche: "True unsolved mysteries and real-life enigmas: baffling disappearances, unexplained events, famous heists and scams, strange coincidences that were caught on record — always factual and well-documented, respectful non-graphic storytelling that ends with what investigators know today"
+  # Style profile shapes HOW the script is written (see shorts/scriptgen.py):
   #   vox  = explainer journalism (question hook, context -> twist -> insight -> so what)
   #   facts = fast punchy fact list  |  (empty) = generic viral style
   style: "vox"
@@ -16,7 +17,7 @@ video:
   scenes: 3                   # number of background images (1-4)
   stock_video:
     enabled: true
-  scene_style: "Vox-style flat editorial illustration: bold minimalist vector shapes, paper-cutout layers, muted background with one strong accent color, subtle film grain, infographic composition, vertical 9:16"
+  scene_style: "Documentary mystery atmosphere: moody real locations at dusk, fog over old cities, archives and maps by candlelight, dim streetlights, cinematic shadows, realistic photographic style, vertical 9:16"
   max_words_per_caption: 3    # words shown per caption pop
   uppercase_captions: false   # Vox style = clean sentence case
   resolution: [1080, 1920]    # 9:16 vertical
@@ -43,7 +44,7 @@ captions:
   # Arabic captions need an Arabic font — the repo bundles Almarai (fonts/).
   # For Latin-script languages switch back to "DejaVu Sans".
   font: "Almarai"
-  # ffmpeg also searches the repo fonts/ folder automatically (fontsdir).         # must be installed on the machine that renders
+  # ffmpeg also searches the repo fonts/ folder automatically (fontsdir).
   font_size: 84
   margin_v: 420               # distance from bottom (keep clear of Shorts UI)
   spoken_color: "FFEB3B"      # yellow fill for the word being spoken
