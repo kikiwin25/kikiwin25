@@ -57,7 +57,7 @@ upload:
   category_id: "24"           # 24=Entertainment 27=Education 22=People&Blogs
   made_for_kids: false
   playlist_id: ""             # optional: playlist ID to add the video to
-  append_shorts_hashtag: false
+  append_shorts_hashtag: true
 
 music:
   enabled: false              # optional background loop
