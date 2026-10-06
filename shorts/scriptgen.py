@@ -84,14 +84,16 @@ Return STRICT JSON with exactly this shape:
   "topic": "short name of today's topic",
   "title": "YouTube title, max 70 chars, curiosity-driven, no clickbait lies",
   "hook": "first spoken line, max 8 words, one of the hook formulas, no greeting",
-  "sentences": ["8 to 12 short punchy spoken sentences, each max 14 words"],
+  "sentences": ["10 to 14 short punchy spoken sentences, each max 12 words"],
   "cta": "final line: follow for more, max 8 words",
   "description": "1-3 sentence YouTube description",
   "tags": ["6 to 10 search tags, single words or short phrases, no #"]
 }}
 {style_block}
 Rules:
-- Narration (hook + sentences + cta) must total 80-130 words so it fits ~40s.
+- Narration (hook + sentences + cta) must total 120-150 words so it fits
+  ~50-55 seconds. This length is the whole point: build ONE story with a
+  rising tension and a payoff near the end so viewers stay to the last second.
 - Spoken, natural style. No emojis, no stage directions, no hashtags inside
   spoken lines, no quotation marks around the lines themselves.
 - Facts must be accurate; if unsure, choose a topic you are certain about.
