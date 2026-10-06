@@ -13,7 +13,7 @@ channel:
   language: "ar"
 
 video:
-  target_seconds: 40          # rough narration length (Shorts max = 60)
+  target_seconds:    55     # rough narration length (Shorts max = 60)
   scenes: 3                   # number of background images (1-4)
   stock_video:
     enabled: true
