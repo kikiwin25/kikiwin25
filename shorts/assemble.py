@@ -1,7 +1,10 @@
-"""Step 5 — assemble the vertical Short with ffmpeg + libass.
+"""Step 5 — assemble the video with ffmpeg + libass.
 
 Pipeline:  bg_i (stock clip OR image) --> scene_i.mp4 --> silent.mp4
            narration.wav (+optional music) + subs.ass  -->  final.mp4
+
+Frame size comes from cfg["video"]["resolution"] (default 1080x1920 = 9:16
+Shorts, unchanged). Set it to [1920, 1080] for a 16:9 landscape long-form.
 """
 from __future__ import annotations
 
@@ -9,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-W, H = 1080, 1920
+W, H = 1080, 1920   # defaults — Shorts stay 9:16
 
 
 # ------------------------------------------------------------------ ffmpeg
@@ -45,12 +48,13 @@ _PROFILES = [
 ]
 
 
-def _render_scene(ffmpeg: str, bg: Path, frames: int, fps: int, idx: int, workdir: Path) -> Path:
+def _render_scene(ffmpeg: str, bg: Path, frames: int, fps: int, idx: int,
+                  workdir: Path, w: int = W, h: int = H) -> Path:
     """bg may be a stock VIDEO clip (.mp4...) -> trimmed, or an IMAGE -> zoompan."""
     out = workdir / f"scene_{idx}.mp4"
     if bg.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv"):
-        vf = (f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-              f"crop={W}:{H},fps={fps},format=yuv420p")
+        vf = (f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+              f"crop={w}:{h},fps={fps},format=yuv420p")
         _run([ffmpeg, "-y", "-i", bg.name, "-vf", vf, "-frames:v", str(frames),
               "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", out.name],
              workdir)
@@ -60,9 +64,9 @@ def _render_scene(ffmpeg: str, bg: Path, frames: int, fps: int, idx: int, workdi
     n = max(frames - 1, 1)
     z, x, y = zf.format(n=n), xf.format(n=n), yf.format(n=n)
     vf = (
-        f"scale={W * 2}:{H * 2}:force_original_aspect_ratio=increase,"
-        f"crop={W * 2}:{H * 2},"
-        f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={W}x{H}:fps={fps},"
+        f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,"
+        f"crop={w * 2}:{h * 2},"
+        f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={fps},"
         f"format=yuv420p"
     )
     _run([ffmpeg, "-y", "-i", bg.name, "-vf", vf, "-frames:v", str(frames),
@@ -122,6 +126,8 @@ def render(workdir: Path, narration: Path, narration_len_s: float,
     """Build final.mp4 inside workdir."""
     ffmpeg = find_ffmpeg()
     fps = int(cfg["video"]["fps"])
+    res = list(cfg["video"].get("resolution") or [W, H])
+    w, h = int(res[0]), int(res[1])
 
     subs = workdir / "subs.ass"
     if not subs.exists():
@@ -134,12 +140,13 @@ def render(workdir: Path, narration: Path, narration_len_s: float,
     base = total_frames // n_scenes
     extra = total_frames - base * n_scenes
 
+    print(f"  [render] target frame: {w}x{h} ({n_scenes} scenes)")
     scenes = []
     idx = 0
     for i in range(n_scenes):
         frames = base + (1 if i < extra else 0)
         bg = bgs[i]
-        scenes.append(_render_scene(ffmpeg, bg, frames, fps, idx, workdir))
+        scenes.append(_render_scene(ffmpeg, bg, frames, fps, idx, workdir, w, h))
         idx += 1
         kind = "stock clip" if bg.suffix == ".mp4" else "image"
         print(f"  [render] scene {i + 1}/{n_scenes} ({frames / fps:.1f}s, {kind})")
