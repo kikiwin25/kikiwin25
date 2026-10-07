@@ -1,13 +1,17 @@
 """Real stock visuals from Pexels (free API, free commercial use).
 
 Priority per scene:
-  1. Pexels VIDEO clip (portrait HD first, any orientation as backup)
+  1. Pexels VIDEO clip (preferred orientation first, any orientation as backup)
   2. Pexels PHOTO (real photography — ffmpeg adds the Ken Burns zoom)
   3. (handled in visuals.py) Pollinations AI image -> editorial poster
 
 Keywords are picked LOCALLY (rotating niche list, zero Gemini calls).
 Every attempt updates state/pexels_status.json with a short diagnostic
 (key length, last state) so the result can be read directly from the repo.
+
+Search orientation comes from cfg["video"]["pexels_orientation"]
+(default "portrait" = Shorts, unchanged). The long-form story sets it
+to "landscape" so clips match its 16:9 frame.
 """
 from __future__ import annotations
 
@@ -48,6 +52,10 @@ FALLBACK_KEYWORDS = [
 
 class PexelsError(RuntimeError):
     pass
+
+
+def _orientation(cfg: dict) -> str:
+    return str((cfg.get("video") or {}).get("pexels_orientation") or "portrait")
 
 
 def _status(state: str, detail: str = "") -> None:
@@ -125,7 +133,7 @@ def _search(api_key: str, query: str, orientation: str | None) -> dict:
 
 
 def _collect(data: dict, used: set) -> list[tuple]:
-    """Candidates as (portrait_first, height, id, link), best order first."""
+    """Candidates as (matching_orientation_first, height, id, link), best first."""
     cands = []
     for v in data.get("videos", []):
         if f"v{v.get('id')}" in used or (v.get("duration") or 0) < 8:
@@ -141,7 +149,7 @@ def _collect(data: dict, used: set) -> list[tuple]:
 
 
 def fetch_pexels_video(keywords: list[str], idx: int, out: Path, cfg: dict) -> Path | None:
-    """Search + download one HD clip. Portrait preferred, landscape fallback."""
+    """Search + download one HD clip. Preferred orientation first, fallback any."""
     api_key = env("PEXELS_API_KEY", required=False)
     if not api_key:
         _status("empty_key")
@@ -149,8 +157,9 @@ def fetch_pexels_video(keywords: list[str], idx: int, out: Path, cfg: dict) -> P
 
     used = {str(x) for x in load_json(USED_FILE, {"ids": []}).get("ids", [])}
     query = " ".join(keywords[:2])
+    orient = _orientation(cfg)
     try:
-        data = _search(api_key, query, "portrait")
+        data = _search(api_key, query, orient)
         candidates = _collect(data, used)
         if not candidates:
             data = _search(api_key, query, None)
@@ -192,7 +201,7 @@ def fetch_pexels_photo(keywords: list[str], idx: int, out: Path, cfg: dict) -> P
     try:
         data = _get(PHOTO_URL, {
             "query": query,
-            "orientation": "portrait",
+            "orientation": _orientation(cfg),
             "per_page": 15,
             "page": 1,
         }, api_key)
