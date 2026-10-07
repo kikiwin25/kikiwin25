@@ -70,3 +70,12 @@ limits:
   gemini_tts_model: "gemini-2.5-flash-preview-tts"
   max_images: 3
   max_sentences: 14
+
+# ---- Long audio story (19:00 Marrakesh, see .github/workflows/long.yml) ----
+long:
+  enabled: true           # ON — requires the phone verification at youtube.com/verify
+  scenes: 18              # one visual scene per chapter (~50 s each)
+  tts_chunks: 4           # Gemini TTS requests per story (free quota = 10/day)
+  tts_gap_seconds: 0.15   # calmer pacing than the Shorts (0.18)
+  # voice:                # optional: a calmer Gemini voice than the Shorts one
+  # style:                # optional: narration style hint for the voice
