@@ -75,7 +75,7 @@ limits:
 long:
   enabled: true           # ON — requires the phone verification at youtube.com/verify
   scenes: 18              # one visual scene per chapter (~50 s each)
-  tts_chunks: 4           # Gemini TTS requests per story (free quota = 10/day)
+  tts_chunks: 3           # Gemini TTS requests per story (free quota = 10/day)
   tts_gap_seconds: 0.15   # calmer pacing than the Shorts (0.18)
   # voice:                # optional: a calmer Gemini voice than the Shorts one
   # style:                # optional: narration style hint for the voice
