@@ -6,7 +6,13 @@
 
 Reuses the whole Shorts pipeline (tts -> visuals -> assemble -> upload);
 the story comes from storygen.Story, which duck-types like scriptgen.Script.
-Config: everything lives under `long:` in config.yaml (voice, scenes, ...).
+Config: everything lives under `long:` in config.yaml. Default frame is
+16:9 landscape (1920x1080) like a TV documentary; the Shorts stay 9:16.
+
+v3: TTS is forced to Gemini (ElevenLabs free tier rejects >10k chars, which
+is every long story), all prints are line-buffered (a silent crash now
+shows exactly where it stopped), and narration gets one automatic retry
+(synthesized batches are cached on disk, so a retry never re-pays them).
 """
 from __future__ import annotations
 
@@ -14,6 +20,7 @@ import argparse
 import copy
 import datetime as dt
 import re
+import sys
 import wave
 from pathlib import Path
 
@@ -55,6 +62,7 @@ def _long_cfg(cfg: dict) -> dict:
     """Deep-copy cfg with the long-form overrides from `long:` in config.yaml."""
     long = cfg.get("long") or {}
     c = copy.deepcopy(cfg)
+    c["tts"]["provider"] = "gemini"   # ElevenLabs free tier caps at 10k chars/story
     c["tts"]["chunks"] = int(long.get("tts_chunks", 4))       # Gemini TTS: 10 req/day
     c["tts"]["gap_seconds"] = float(long.get("tts_gap_seconds", 0.15))
     if long.get("voice"):
@@ -65,8 +73,43 @@ def _long_cfg(cfg: dict) -> dict:
     c["video"]["scenes"] = scenes
     c.setdefault("limits", {})["max_images"] = scenes
     c["video"]["fps"] = int(long.get("fps", c["video"].get("fps", 30)))
+    # 16:9 landscape like a TV documentary (Shorts keep their own 9:16)
+    c["video"]["resolution"] = [int(long.get("width", 1920)), int(long.get("height", 1080))]
+    c["video"]["pexels_orientation"] = str(long.get("pexels_orientation", "landscape"))
+    # captions recalibrated for a 1920x1080 frame (Shorts values untouched)
+    c.setdefault("captions", {})
+    c["captions"]["font_size"] = int(long.get("caption_font_size", 72))
+    c["captions"]["margin_v"] = int(long.get("caption_margin_v", 96))
     c["upload"]["append_shorts_hashtag"] = False              # handled below, long pack
     return c
+
+
+def _record_narration(gem: Gemini, cfg: dict, lines: list[str], workdir: Path):
+    """synthesize_narration with unbuffered logs and one automatic retry."""
+    try:
+        sys.stdout.reconfigure(line_buffering=True)   # crash logs stay visible
+    except Exception:  # noqa: BLE001 — very old Pythons only
+        pass
+
+    import time
+    import traceback
+
+    for attempt in (1, 2):
+        try:
+            return synthesize_narration(gem, cfg, lines, workdir)
+        except SystemExit:
+            raise                    # quota / config advice — never retry these
+        except Exception:
+            print(f"  [warn] narration attempt {attempt}/2 failed:")
+            traceback.print_exc()
+            sys.stdout.flush()
+            if attempt == 1:
+                print("  [warn] retrying once — finished batches are cached, "
+                      "they will NOT be synthesized again ...")
+                time.sleep(5)
+            else:
+                raise SystemExit("[✗] Narration failed twice — see the "
+                                 "traceback above for the exact cause.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,6 +118,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="render only, skip the upload")
     ap.add_argument("--out-dir", default="outputs", help="where finished videos go")
     args = ap.parse_args(argv)
+
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:  # noqa: BLE001
+        pass
 
     cfg = load_config()
     if not bool((cfg.get("long") or {}).get("enabled", False)):
@@ -86,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     c = _long_cfg(cfg)
 
     print("=" * 62)
-    print(" Long-form audio story — ~15 minutes")
+    print(" Long-form audio story — ~15 minutes (16:9)")
     print("=" * 62)
     api_key = env("GEMINI_API_KEY", True, "Get a free key at https://aistudio.google.com/apikey")
     gem = Gemini(api_key, cfg)
@@ -104,15 +152,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  workdir: {workdir}")
 
     # 2 — narration ---------------------------------------------------------
-    print("\n[2/6] Recording the narration (4 batched TTS requests) ...")
-    narration, timings = synthesize_narration(gem, c, story.narration, workdir)
+    print("\n[2/6] Recording the narration (4 batched Gemini TTS requests) ...")
+    narration, timings = _record_narration(gem, c, story.narration, workdir)
     with wave.open(str(narration), "rb") as w:
         total_len = w.getnframes() / w.getframerate()
     print(f"  narration: {total_len / 60:.1f} min")
     if total_len < 12 * 60:
         print("  [warn] shorter than 12 min — story came out thin; fine, publishing anyway.")
     if total_len > 15 * 60:
-        print("  [warn] over 15:00 — YouTube rejects this unless the channel is "
+        print("  [warn] over 15:00 — YouTube accepts this only if the channel is "
               "verified at https://www.youtube.com/verify")
 
     # 3 — visuals -----------------------------------------------------------
