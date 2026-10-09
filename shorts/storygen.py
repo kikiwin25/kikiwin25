@@ -224,4 +224,26 @@ def make_story(gem: Gemini, cfg: dict, topic_override: str | None, used: list[st
         segments=segments,
         cta=_clean(str(plan.get("cta", "Follow for more stories."))),
         description=_clean(str(plan.get("description", ""))),
-        tags=[_clean(str(t)) for t 
+        tags=[_clean(str(t)) for t in (plan.get("tags") or [])],
+    )
+
+    if len(story.segments) < 8:
+        raise SystemExit(f"[✗] Story assembled with too few segments "
+                         f"({len(story.segments)}) — raw plan:\n{json.dumps(plan)[:500]}")
+    if story.words < MIN_WORDS:
+        raise SystemExit(f"[✗] Story too short: {story.words} words (need ≥ {MIN_WORDS}). "
+                         f"Check the 'part X-Y: N lines' prints above to find the thin part.")
+    story = _enforce(story, cfg)
+
+    print(f"  topic:     {story.topic}")
+    print(f"  title:     {story.title}")
+    print(f"  hook:      {story.hook}")
+    print(f"  segments:  {len(story.segments)}")
+    print(f"  narration: {len(story.narration)} lines, {story.words} words "
+          f"(~{story.words / 130:.0f}-{story.words / 110:.0f} min)")
+    return story
+
+
+def save_story(story: Story, path) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(asdict(story), f, ensure_ascii=False, indent=2)
