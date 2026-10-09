@@ -1,15 +1,18 @@
 """Long-form audio stories — Gemini writes a ~2000-word mystery story (~15 min).
 
-v2: the story is generated in FOUR small requests (1 outline + 3 text parts)
+v3: the story is generated in FOUR small requests (1 outline + 3 text parts)
 instead of one giant one. A 2000-word Arabic JSON exceeds Gemini's default
 ~8k-token output cap, which truncated the JSON mid-story and crashed the run.
-The Story object duck-types like scriptgen.Script (it has a `.narration`
-property), so the existing Pexels keyword picker works on it unchanged.
+v3b: the plan and each part are retried up to 3 times — Gemini occasionally
+returns an empty/unparseable response, and one flaky answer used to kill
+the whole run. The Story object duck-types like scriptgen.Script (it has a
+`.narration` property), so the existing Pexels keyword picker works unchanged.
 """
 from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field, asdict
 
 from .gemini_client import Gemini
@@ -17,6 +20,7 @@ from .gemini_client import Gemini
 MIN_WORDS = 1300    # below this the story is too short — regenerate manually
 TARGET_WORDS = 2000  # ~14-16 min of calm Arabic narration (~130 wpm)
 PART_SIZE = 4        # chapters per text request (3 parts for 11-12 chapters)
+TRIES = 3            # attempts per request (Gemini flaky answers happen)
 
 
 @dataclass
@@ -118,6 +122,29 @@ RULES:
 """
 
 
+def _ask_json(gem: Gemini, prompt: str, what: str, validate) -> object:
+    """json_text with up to TRIES attempts (Gemini sometimes answers garbage).
+
+    SystemExit passes straight through (quota advice must never be retried).
+    `validate(data)` returns True when the answer is usable.
+    """
+    last = "unknown error"
+    for attempt in range(1, TRIES + 1):
+        try:
+            data = gem.json_text(prompt, temperature=1.0)
+            if validate(data):
+                return data
+            last = f"unusable answer (failed the {what} check)"
+        except SystemExit:
+            raise
+        except Exception as exc:  # noqa: BLE001 — any API hiccup is retryable
+            last = f"{type(exc).__name__}: {str(exc)[:140]}"
+        print(f"  [warn] {what}: attempt {attempt}/{TRIES} failed — {last}")
+        if attempt < TRIES:
+            time.sleep(5)
+    raise SystemExit(f"[✗] {what} failed {TRIES} times. Last error: {last}")
+
+
 def _enforce(story: Story, cfg: dict) -> Story:
     story.title = story.title.strip()[:100]          # YouTube hard limit
     story.description = story.description.strip()[:4900]
@@ -148,16 +175,19 @@ def make_story(gem: Gemini, cfg: dict, topic_override: str | None, used: list[st
     # 1) outline -----------------------------------------------------------
     if topic_override:
         print(f"  topic (override): {topic_override}")
-    plan = gem.json_text(
+
+    def _plan_ok(data) -> bool:
+        return len([_clean(str(c)) for c in (data.get("chapters") or [])
+                    if _clean(str(c))]) >= 8
+
+    plan = _ask_json(
+        gem,
         PROMPT_PLAN.format(niche=niche, language=lang, used=recent, target=TARGET_WORDS),
-        temperature=1.0)
+        "story plan", _plan_ok)
     if topic_override:
         plan["topic"] = topic_override
 
     chapters = [_clean(str(c)) for c in (plan.get("chapters") or []) if _clean(str(c))]
-    if len(chapters) < 8:
-        raise SystemExit(f"[✗] Plan came back with too few chapters ({len(chapters)}) "
-                         f"— raw output:\n{json.dumps(plan)[:500]}")
 
     # 2) narration text, in parts small enough for the token cap ------------
     n = len(chapters)
@@ -165,14 +195,16 @@ def make_story(gem: Gemini, cfg: dict, topic_override: str | None, used: list[st
     for start in range(0, n, PART_SIZE):
         part_ch = chapters[start:start + PART_SIZE]
         first, last = start + 1, start + len(part_ch)
-        data = gem.json_text(
+        data = _ask_json(
+            gem,
             PROMPT_PART.format(
                 title=_clean(str(plan.get("title", ""))),
                 language=lang,
                 plan="\n".join(f"{i + 1}. {c}" for i, c in enumerate(chapters)),
                 first=first, last=last, n_chapters=n,
                 chapters="\n".join(f"- {c}" for c in part_ch)),
-            temperature=1.0)
+            f"part {first}-{last}",
+            lambda d: bool([s for s in (d.get("lines") or []) if _clean(str(s))]))
         part_lines = [_clean(str(s)) for s in (data.get("lines") or []) if _clean(str(s))]
         print(f"  part {first}-{last}: {len(part_lines)} lines")
         lines_all.extend(part_lines)
@@ -192,26 +224,4 @@ def make_story(gem: Gemini, cfg: dict, topic_override: str | None, used: list[st
         segments=segments,
         cta=_clean(str(plan.get("cta", "Follow for more stories."))),
         description=_clean(str(plan.get("description", ""))),
-        tags=[_clean(str(t)) for t in (plan.get("tags") or [])],
-    )
-
-    if len(story.segments) < 8:
-        raise SystemExit(f"[✗] Story assembled with too few segments "
-                         f"({len(story.segments)}) — raw plan:\n{json.dumps(plan)[:500]}")
-    if story.words < MIN_WORDS:
-        raise SystemExit(f"[✗] Story too short: {story.words} words (need ≥ {MIN_WORDS}). "
-                         f"Check the 'part X-Y: N lines' prints above to find the thin part.")
-    story = _enforce(story, cfg)
-
-    print(f"  topic:     {story.topic}")
-    print(f"  title:     {story.title}")
-    print(f"  hook:      {story.hook}")
-    print(f"  segments:  {len(story.segments)}")
-    print(f"  narration: {len(story.narration)} lines, {story.words} words "
-          f"(~{story.words / 130:.0f}-{story.words / 110:.0f} min)")
-    return story
-
-
-def save_story(story: Story, path) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(asdict(story), f, ensure_ascii=False, indent=2)
+        tags=[_clean(str(t)) for t 
