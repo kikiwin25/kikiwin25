@@ -35,7 +35,7 @@ tts:
   # eleven_multilingual_v2 = best quality | eleven_turbo_v2_5 = faster/cheaper
   elevenlabs_model: "eleven_multilingual_v2"
   # Gemini fallback voice:
-  voice: "Kore"
+  voice: "charon"
   style: "a confident, energetic narrator speaking clear Modern Standard Arabic (فصحى)"
   gap_seconds: 0.18           # pause between batches (gemini provider)
   chunks: 3                   # gemini provider: requests per video
@@ -77,5 +77,5 @@ long:
   scenes: 18              # one visual scene per chapter (~50 s each)
   tts_chunks: 3           # Gemini TTS requests per story (free quota = 10/day)
   tts_gap_seconds: 0.15   # calmer pacing than the Shorts (0.18)
-  # voice:                # optional: a calmer Gemini voice than the Shorts one
-  # style:                # optional: narration style hint for the voice
+  voice: "Charon"         # deep MALE documentary voice (Gemini)
+  style: "a calm, deep male documentary narrator speaking clear Modern Standard Arabic (الفصحى)"
