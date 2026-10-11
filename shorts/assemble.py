@@ -5,6 +5,17 @@ Pipeline:  bg_i (stock clip OR image) --> scene_i.mp4 --> silent.mp4
 
 Frame size comes from cfg["video"]["resolution"] (default 1080x1920 = 9:16
 Shorts, unchanged). Set it to [1920, 1080] for a 16:9 landscape long-form.
+
+v2 fix — long videos were cut short (5:25 instead of ~15 min): stock Pexels
+clips are often shorter than the scene length asked for, so the visual track
+ended early and `-shortest` truncated the narration mid-sentence. Two guards
+now:
+  1. short stock clips are LOOPED (-stream_loop -1) until they fill the exact
+     scene length, so the silent track always equals the planned duration;
+  2. the mux pads the video with a frozen last frame (tpad) as a safety net,
+     so the video stream can never end before the audio does. (-shortest then
+     ends the output at the narration's natural end, like before.)
+Shorts behaviour is unchanged: their image scenes already hit exact lengths.
 """
 from __future__ import annotations
 
@@ -12,7 +23,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
-W, H = 1080, 1920   # defaults — Shorts stay 9:16
+W, H = 1080, 1920    # defaults — Shorts stay 9:16
+
+# Safety margin of frozen last frame (seconds) — never reached in normal
+# renders because -shortest cuts at the audio's end first.
+TPAD_SAFETY_S = 60
 
 
 # ------------------------------------------------------------------ ffmpeg
@@ -39,25 +54,29 @@ def _run(cmd: list[str], cwd: Path) -> None:
         raise SystemExit(f"[✗] ffmpeg failed:\n{' '.join(cmd[:8])} ...\n{tail}")
 
 
-# --------------------------------------------------------------- zoompan
+# ------------------------------------------------------------------ zoompan
+# p = frame progress 0..1 (on/total). Centered crop keeps motion smooth.
 _PROFILES = [
     ("zoom in",  "1+0.12*on/{n}",          "iw/2-(iw/zoom/2)",        "ih/2-(ih/zoom/2)"),
     ("pan L->R", "1.12",                    "(iw-iw/zoom)*on/{n}",     "ih/2-(ih/zoom/2)"),
-    ("zoom out", "1.12-0.12*on/{n}",       "iw/2-(ih/zoom/2)",        "ih/2-(ih/zoom/2)"),
+    ("zoom out", "1.12-0.12*on/{n}",       "iw/2-(iw/zoom/2)",        "ih/2-(ih/zoom/2)"),
     ("pan R->L", "1.12",                    "(iw-iw/zoom)*(1-on/{n})", "ih/2-(ih/zoom/2)"),
 ]
 
 
 def _render_scene(ffmpeg: str, bg: Path, frames: int, fps: int, idx: int,
                   workdir: Path, w: int = W, h: int = H) -> Path:
-    """bg may be a stock VIDEO clip (.mp4...) -> trimmed, or an IMAGE -> zoompan."""
-    out = workdir / f"scene_{idx}.mp4"
+    """bg may be a stock VIDEO clip (.mp4...) -> looped+trimmed to EXACTLY
+    `frames`, or an IMAGE -> zoompan for exactly `frames`."""
+    out = workdir / f"scene{idx}.mp4"
     if bg.suffix.lower() in (".mp4", ".mov", ".webm", ".mkv"):
         vf = (f"scale={w}:{h}:force_original_aspect_ratio=increase,"
               f"crop={w}:{h},fps={fps},format=yuv420p")
-        _run([ffmpeg, "-y", "-i", bg.name, "-vf", vf, "-frames:v", str(frames),
-              "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", out.name],
-             workdir)
+        # -stream_loop -1: a clip shorter than the scene repeats until
+        # -frames:v caps it — the scene is ALWAYS exactly `frames` long.
+        _run([ffmpeg, "-y", "-stream_loop", "-1", "-i", bg.name, "-vf", vf,
+              "-frames:v", str(frames), "-an", "-c:v", "libx264",
+              "-preset", "veryfast", "-crf", "18", out.name], workdir)
         return out
 
     name, zf, xf, yf = _PROFILES[idx % len(_PROFILES)]
@@ -93,6 +112,9 @@ def _mux(ffmpeg: str, silent: Path, narration: Path, subs: Path, workdir: Path,
         print(f"  [warn] music enabled but {music_path} missing — skipping music")
         music_path = None
 
+    # ass filter + bundled repo fonts (e.g. Arabic captions with Almarai),
+    # then the tpad safety net: freeze the last frame rather than let the
+    # video end before the narration.
     ass_filter = f"ass={subs.name}"
     repo_fonts = workdir.parent.parent / "fonts"
     if repo_fonts.is_dir():
@@ -100,8 +122,9 @@ def _mux(ffmpeg: str, silent: Path, narration: Path, subs: Path, workdir: Path,
 
         rel = os.path.relpath(repo_fonts, workdir)
         ass_filter = f"ass={subs.name}:fontsdir={rel}"
+    vf_chain = f"{ass_filter},tpad=stop_mode=clone:stop_duration={TPAD_SAFETY_S}"
 
-    common = ["-map", "0:v", "-map", "[a]", "-vf", ass_filter,
+    common = ["-map", "0:v", "-map", "[a]", "-vf", vf_chain,
               "-c:v", "libx264", "-preset", "medium", "-crf", "19",
               "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
               "-movflags", "+faststart", "-shortest", final.name]
@@ -134,13 +157,14 @@ def render(workdir: Path, narration: Path, narration_len_s: float,
         raise SystemExit("[✗] subs.ass missing — captions step did not run.")
 
     total_frames = max(fps, round(narration_len_s * fps))
-    # backgrounds may be stock video clips (bg_*.mp4) or AI images (bg_*.png)
+    # backgrounds may be stock video clips (bg_*.mp4) or images (bg_*.png)
     bgs = sorted(workdir.glob("bg_*.mp4")) + sorted(workdir.glob("bg_*.png"))
     n_scenes = max(1, len(bgs))
     base = total_frames // n_scenes
     extra = total_frames - base * n_scenes
 
-    print(f"  [render] target frame: {w}x{h} ({n_scenes} scenes)")
+    print(f"  [render] target frame: {w}x{h} ({n_scenes} scenes, "
+          f"{total_frames / fps / 60:.1f} min planned)")
     scenes = []
     idx = 0
     for i in range(n_scenes):
