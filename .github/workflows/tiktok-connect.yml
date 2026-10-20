@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       auth_code:
-        description: "The 'code' shown on the callback page after approving"
+        description: "The code, OR the whole callback URL from the address bar"
         required: true
         type: string
 
@@ -30,11 +30,15 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, time, urllib.request, urllib.parse
+          raw = os.environ["AUTH_CODE"].strip()
+          if "code=" in raw:                      # whole URL pasted -> extract
+              q = urllib.parse.urlparse(raw).query
+              raw = urllib.parse.parse_qs(q)["code"][0]
           data = urllib.parse.urlencode({
               "client_key": os.environ["TIKTOK_CLIENT_KEY"],
               "client_secret": os.environ["TIKTOK_CLIENT_SECRET"],
               "grant_type": "authorization_code",
-              "code": os.environ["AUTH_CODE"].strip(),
+              "code": raw,
               "redirect_uri": "https://kikiwin25.github.io/kikiwin25/callback.html",
           }).encode()
           req = urllib.request.Request(
