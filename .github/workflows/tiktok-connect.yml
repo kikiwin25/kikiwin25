@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       auth_code:
-        description: "The code, OR the whole callback URL from the address bar"
+        description: "Fresh code/URL OR the token JSON from PowerShell"
         required: true
         type: string
 
@@ -22,7 +22,7 @@ jobs:
           key: tiktok-tok-${{ github.run_id }}
           restore-keys: tiktok-tok-
 
-      - name: Echanger le code contre les jetons
+      - name: Echanger le code OU deposer les jetons
         env:
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
@@ -31,27 +31,35 @@ jobs:
           python3 - <<'PY'
           import json, os, time, urllib.request, urllib.parse
           raw = os.environ["AUTH_CODE"].strip()
-          if "code=" in raw:                      # whole URL pasted -> extract
-              q = urllib.parse.urlparse(raw).query
-              raw = urllib.parse.parse_qs(q)["code"][0]
-          data = urllib.parse.urlencode({
-              "client_key": os.environ["TIKTOK_CLIENT_KEY"],
-              "client_secret": os.environ["TIKTOK_CLIENT_SECRET"],
-              "grant_type": "authorization_code",
-              "code": raw,
-              "redirect_uri": "https://kikiwin25.github.io/kikiwin25/callback.html",
-          }).encode()
-          req = urllib.request.Request(
-              "https://open.tiktokapis.com/v2/oauth/token/", data=data,
-              headers={"Content-Type": "application/x-www-form-urlencoded"})
-          tok = json.loads(urllib.request.urlopen(req, timeout=30).read().decode())
-          if "access_token" not in tok:
+          now = time.time()
+
+          if raw.startswith("{"):
+              tok = json.loads(raw)                 # depot: jetons deja obtenus sur ton PC
+              src = "jetons deposees"
+          else:
+              if "code=" in raw:                    # URL entree -> extraction du code
+                  q = urllib.parse.urlparse(raw).query
+                  raw = urllib.parse.parse_qs(q)["code"][0]
+              data = urllib.parse.urlencode({       # echange direct (si code encore frais)
+                  "client_key": os.environ["TIKTOK_CLIENT_KEY"],
+                  "client_secret": os.environ["TIKTOK_CLIENT_SECRET"],
+                  "grant_type": "authorization_code",
+                  "code": raw,
+                  "redirect_uri": "https://kikiwin25.github.io/kikiwin25/callback.html",
+              }).encode()
+              req = urllib.request.Request(
+                  "https://open.tiktokapis.com/v2/oauth/token/", data=data,
+                  headers={"Content-Type": "application/x-www-form-urlencoded"})
+              tok = json.loads(urllib.request.urlopen(req, timeout=30).read().decode())
+              src = "code echange"
+
+          if "access_token" not in tok or "refresh_token" not in tok:
               raise SystemExit(f"echec: {str(tok)[:300]}")
-          tok["expires_at"] = time.time() + int(tok.get("expires_in", 86400)) - 600
-          tok["refresh_expires_at"] = time.time() + int(tok.get("refresh_expires_in", 31536000)) - 86400
+          tok["expires_at"] = now + int(tok.get("expires_in", 86400)) - 600
+          tok["refresh_expires_at"] = now + int(tok.get("refresh_expires_in", 31536000)) - 86400
           with open(".tiktok_token", "w") as f:
               f.write(json.dumps(tok))
-          print("JETONS OBTENUS — expire:", time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(tok["expires_at"])))
+          print(f"OK ({src}) — access_token expire:", time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(tok["expires_at"])))
           print("C est fait ! Les prochains crons deposent aussi sur TikTok (en prive).")
           PY
 
