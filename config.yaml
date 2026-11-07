@@ -4,7 +4,7 @@
 channel:
   # REQUIRED — what your channel is about. The AI picks a fresh topic in this
   # niche every day and never repeats one it already used.
-  niche: "True unsolved mysteries and real-life enigmas: baffling disappearances, unexplained events, famous heists and scams, strange coincidences that were caught on record — always factual and well-documented, respectful non-graphic storytelling that ends with what investigators know today"
+  niche: "Fascinating 'What if?' hypothetical scenarios: what would happen if the sun vanished, if you fell into a black hole, if the oceans dried up, if humans disappeared tomorrow, if Earth stopped spinning — always grounded in real science and expert consensus, vivid storytelling that ends with what it means for us today"
   # Style profile shapes HOW the script is written (see shorts/scriptgen.py):
   #   vox  = explainer journalism (question hook, context -> twist -> insight -> so what)
   #   facts = fast punchy fact list  |  (empty) = generic viral style
@@ -17,7 +17,7 @@ video:
   scenes: 3                   # number of background images (1-4)
   stock_video:
     enabled: true
-  scene_style: "Documentary mystery atmosphere: moody real locations at dusk, fog over old cities, archives and maps by candlelight, dim streetlights, cinematic shadows, realistic photographic style, vertical 9:16"
+  scene_style: "Epic science What-if atmosphere: space, planets, futuristic cities, oceans and natural wonders, cinematic lighting, realistic photographic style, vertical 9:16"
   max_words_per_caption: 3    # words shown per caption pop
   uppercase_captions: false   # Vox style = clean sentence case
   resolution: [1080, 1920]    # 9:16 vertical
