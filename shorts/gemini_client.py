@@ -75,7 +75,12 @@ class Gemini:
 
         self.cfg = cfg
         self.limits = cfg["limits"]
-        self.client = genai.Client(api_key=api_key)
+        # Force api version v1beta: JSON mode + TTS live there. New SDK
+        # releases default to v1, where JSON mode is rejected with
+        # "400 INVALID_ARGUMENT: JSON mode is not enabled for api version v1"
+        # (broke every run on 2026-11-06 - Google/SDK change, not our code).
+        self.client = genai.Client(api_key=api_key,
+                                   http_options={"api_version": "v1beta"})
         # image-model memoization: remember what works, skip what doesn't
         self._image_ok: tuple[str, str] | None = None
         self._image_skip: set[tuple[str, str]] = set()
