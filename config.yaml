@@ -35,7 +35,7 @@ tts:
   # eleven_multilingual_v2 = best quality | eleven_turbo_v2_5 = faster/cheaper
   elevenlabs_model: "eleven_multilingual_v2"
   # Gemini fallback voice:
-  voice: "charon"
+    voice: "Iapetus"        # deep MALE documentary voice (Gemini)
   style: "a confident, energetic narrator speaking clear Modern Standard Arabic (فصحى)"
   gap_seconds: 0.18           # pause between batches (gemini provider)
   chunks: 3                   # gemini provider: requests per video
