@@ -2,12 +2,14 @@ name: Long audio story automation
 
 on:
   schedule:
-    # One ~15-minute audio story a day, at 19:00 Marrakesh (= 18:00 UTC, UTC+1).
-    # Evening = prime listening time. Uploads >15 min require the channel to be
+    # One ~15-minute audio story a day, starts 17:00 Marrakesh (= 16:00 UTC,
+    # UTC+1). Generation starts in the afternoon; the video lands on YouTube
+    # in the evening.
+    # Uploads >15 min require the channel to be
     # verified at https://www.youtube.com/verify — do this once, by hand.
     # NOTE: GitHub scheduled workflows can drift ~15 min and are paused after
     # 60 days of repo inactivity; the daily state commits prevent that.
-    - cron: "0 18 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       topic:
