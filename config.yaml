@@ -4,7 +4,7 @@
 channel:
   # REQUIRED — what your channel is about. The AI picks a fresh topic in this
   # niche every day and never repeats one it already used.
-  niche: "Fascinating 'What if?' hypothetical scenarios: what would happen if the sun vanished, if you fell into a black hole, if the oceans dried up, if humans disappeared tomorrow, if Earth stopped spinning — always grounded in real science and expert consensus, vivid storytelling that ends with what it means for us today"
+  niche: "Timeless stories of the Prophets (peace be upon them) and the great Muslim soldiers: Nuh and the ark, Yusuf from the well to the palace, Yunus and the whale, Musa facing Pharaoh, the People of the Cave, Saladin liberating Jerusalem, Khalid ibn al-Walid's battles, the young Muhammad al-Fatih conquering Constantinople, Tariq ibn Ziyad entering Andalusia — always faithful to the Quran, the authentic Sunnah and trusted history, told with respect and dignity, focusing on faith, patience, courage and wisdom"
   # Style profile shapes HOW the script is written (see shorts/scriptgen.py):
   #   vox  = explainer journalism (question hook, context -> twist -> insight -> so what)
   #   facts = fast punchy fact list  |  (empty) = generic viral style
@@ -17,7 +17,7 @@ video:
   scenes: 3                   # number of background images (1-4)
   stock_video:
     enabled: true
-  scene_style: "Epic science What-if atmosphere: space, planets, futuristic cities, oceans and natural wonders, cinematic lighting, realistic photographic style, vertical 9:16"
+  scene_style: "Epic Islamic history atmosphere: endless desert dunes, ancient walled cities, mosques and minarets, old manuscripts and Arabic calligraphy, armor, swords, horses and caravans, campfires under starry skies, sailing ships, candlelit stone rooms, cinematic lighting, realistic photographic style, vertical 9:16, no faces, never depict prophets or religious figures"
   max_words_per_caption: 3    # words shown per caption pop
   uppercase_captions: false   # Vox style = clean sentence case
   resolution: [1080, 1920]    # 9:16 vertical
@@ -71,7 +71,7 @@ limits:
   max_images: 3
   max_sentences: 14
 
-# ---- Long audio story (19:00 Marrakesh, see .github/workflows/long.yml) ----
+# ---- Long audio story (starts 17:00 Marrakesh, see .github/workflows/long.yml) ----
 long:
   enabled: true           # ON — requires the phone verification at youtube.com/verify
   scenes: 18              # one visual scene per chapter (~50 s each)
