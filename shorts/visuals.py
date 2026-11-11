@@ -1,11 +1,11 @@
 """Step 3 — background visuals.
 
 Per-scene cascade: Pexels stock clip -> Pexels photo (real photography,
-Ken Burns zoom) -> Pollinations free AI image (no key, no quota) -> rich
-editorial poster rendered with Pillow. The video never fails because one
-provider is down or out of quota.
+Ken Burns zoom) -> rich editorial poster rendered with Pillow. The video
+never fails because one provider is down or out of quota.
 
-Gemini is NOT used for images anymore — text/script only.
+NO AI images anywhere — real footage or drawn posters only.
+Gemini is NOT used for images — text/script only.
 
 Frame shape follows cfg["video"]["resolution"]: portrait 1080x1920 (Shorts,
 default, unchanged) or landscape 1920x1080 (long-form) — source images are
@@ -13,16 +13,12 @@ then fitted to twice the render size for a smooth zoompan.
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import random
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
-from .config import CACHE_DIR
 from .gemini_client import Gemini
 
 TARGET = (2700, 4800)  # default 2.5x portrait render size — smooth zoompan
@@ -35,27 +31,6 @@ PALETTES = [
     ((20, 60, 30), (88, 180, 92), (255, 209, 102)),    # forest -> green, sand
     ((94, 28, 34), (232, 93, 79), (255, 232, 130)),    # wine -> coral, cream
 ]
-
-
-def scene_prompts(script, n_scenes: int, cfg: dict) -> list[str]:
-    """Split the narration into n scene descriptions."""
-    lines = script.narration
-    per = max(1, (len(lines) + n_scenes - 1) // n_scenes)
-    style = cfg["video"].get("scene_style", "cinematic, vibrant")
-    res = list(cfg["video"].get("resolution") or [1080, 1920])
-    shape = ("Horizontal 16:9 cinematic widescreen" if int(res[0]) > int(res[1])
-             else "Vertical 9:16")
-    prompts = []
-    for i in range(n_scenes):
-        excerpt = " ".join(lines[i * per : (i + 1) * per])[:300]
-        prompts.append(
-            f"{shape} background illustration for a video scene. "
-            f"Scene concept: {excerpt}. Style: {style}. "
-            f"Bright, colorful, eye-catching, full of detail across the whole frame. "
-            f"Absolutely no text, no words, no letters, no numbers, no watermark, "
-            f"no logo, no borders. Leave the center-bottom area simple and clean."
-        )
-    return prompts
 
 
 def _normalize(png_bytes: bytes, out: Path, target: tuple = TARGET) -> None:
@@ -73,24 +48,6 @@ def math_sin(x: float) -> float:
     import math
 
     return 0.5 + 0.5 * math.sin(x * 6.283)
-
-
-def _pollinations_image(prompt: str, seed: int, pw: int = 864, ph: int = 1536) -> bytes | None:
-    """Free AI image via pollinations.ai — no API key, no quota, no signup."""
-    url = ("https://image.pollinations.ai/prompt/"
-           + urllib.parse.quote(prompt[:600])
-           + f"?width={pw}&height={ph}&nologo=true&seed={seed}")
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=120) as r:
-            data = r.read()
-        if len(data) < 10_000:  # too small = error page, not a real image
-            print(f"    [pollinations] response too small ({len(data)} B)")
-            return None
-        return data
-    except Exception as exc:  # noqa: BLE001 — best-effort provider
-        print(f"    [pollinations] failed ({str(exc)[:100]})")
-        return None
 
 
 def _rich_gradient(palette, out: Path, variant: int, target: tuple = TARGET) -> None:
@@ -148,10 +105,11 @@ def _rich_gradient(palette, out: Path, variant: int, target: tuple = TARGET) -> 
 
 
 def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> list[Path]:
-    """Per scene: Pexels clip -> Pexels photo -> Pollinations AI image -> poster.
+    """Per scene: Pexels clip -> Pexels photo -> drawn editorial poster.
 
-    Gemini is never called for images (text/script only). The `gem` argument
-    is kept for call-compat (stock keywords are picked locally).
+    No AI images: real Pexels footage when available, a Pillow-drawn poster
+    otherwise. The `gem` argument is kept for call-compat (stock keywords
+    are picked locally).
     """
     from .pexels import (fetch_pexels_video, fetch_pexels_photo,
                          keywords_for_scene)  # lazy import
@@ -161,15 +119,12 @@ def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> l
     res = list(cfg["video"].get("resolution") or [1080, 1920])
     if int(res[0]) > int(res[1]):              # 16:9 landscape long-form
         target = (int(res[0]) * 2, int(res[1]) * 2)
-        polli = (1536, 864)
     else:                                      # 9:16 portrait Shorts — unchanged
         target = TARGET
-        polli = (864, 1536)
-    prompts = scene_prompts(script, n, cfg)
     paths: list[Path] = []
-    stock_count = img_count = 0
+    stock_count = 0
 
-    for i, prompt in enumerate(prompts):
+    for i in range(n):
         out = workdir / f"bg_{i}"
 
         # ---- 1) Pexels stock clip ----
@@ -196,38 +151,7 @@ def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> l
                 except Exception as exc:  # noqa: BLE001 — bad file, keep cascading
                     print(f"    [warn] pexels photo unusable ({str(exc)[:80]})")
 
-        # ---- 2) cached Pollinations image ----
-        h = hashlib.sha1(prompt.encode()).hexdigest()[:24]
-        cached = CACHE_DIR / f"img_{h}.png"
-        done = False
-        if cached.exists():
-            try:
-                _normalize(cached.read_bytes(), out.with_suffix(".png"), target)
-                done = True
-                print(f"  [visual] scene {i + 1}/{n}: pollinations image (cache)")
-            except Exception:  # noqa: BLE001 — corrupt cache
-                cached.unlink(missing_ok=True)
-
-        # ---- 3) Pollinations free AI image (no key, no quota) ----
-        if not done:
-            print(f"    [scene {i + 1}] pollinations image...")
-            data = _pollinations_image(prompt, seed=i * 17 + 3, pw=polli[0], ph=polli[1])
-            if data:
-                try:
-                    _normalize(data, out.with_suffix(".png"), target)
-                    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-                    cached.write_bytes(data)
-                    done = True
-                except Exception as exc:  # noqa: BLE001 — unreadable image
-                    print(f"    [warn] pollinations image unusable ({str(exc)[:80]})")
-
-        if done:
-            paths.append(out.with_suffix(".png"))
-            img_count += 1
-            print(f"  [visual] scene {i + 1}/{n}: pollinations image")
-            continue
-
-        # ---- 4) Editorial poster ----
+        # ---- 2) Editorial poster (drawn, no AI) ----
         _rich_gradient(PALETTES[i % len(PALETTES)], out.with_suffix(".png"), i, target)
         print(f"  [visual] scene {i + 1}/{n}: editorial fallback poster")
         paths.append(out.with_suffix(".png"))
@@ -236,11 +160,4 @@ def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> l
     for i, p in enumerate(paths):
         if p.suffix != ".png":
             continue
-        img = Image.open(p).convert("RGB")
-        lum = _mean_luminance(img)
-        if lum < 22:
-            print(f"    [warn] bg_{i} too dark ({lum:.0f}/255) — regenerating poster")
-            _rich_gradient(PALETTES[i % len(PALETTES)], p, i + 1, target)
-    print(f"  [visual] summary: {stock_count} stock / {img_count} AI / "
-          f"{n - stock_count - img_count} posters")
-    return paths
+        img = 
