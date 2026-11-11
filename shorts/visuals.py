@@ -161,7 +161,7 @@ def build_backgrounds(gem: Gemini | None, script, workdir: Path, cfg: dict) -> l
         if p.suffix != ".png":
             continue
                 img = Image.open(p).convert("RGB")
-        lum = _mean_luminance(img)
+                img = Image.open(p).convert("RGB")
         if lum < 22:
             print(f"    [warn] bg_{i} too dark ({lum:.0f}/255) — regenerating poster")
             _rich_gradient(PALETTES[i % len(PALETTES)], p, i + 1, target)
