@@ -1,5 +1,7 @@
 {
-  "last_run": "2026-11-12 10:19 UTC",
+  "last_run": "2026-11-12 10:35 UTC",
   "key_len": 56,
-  "state": "ok_photo"
+  "state": "ok_video",
+  "last_video": "ok_video",
+  "last_video_at": "2026-11-12 10:35 UTC"
 }
