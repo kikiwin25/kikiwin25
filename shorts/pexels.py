@@ -1,17 +1,9 @@
-"""Real stock visuals from Pexels (free API, free commercial use).
+"""Pexels stock visuals — real videos/photos only (no AI images).
 
-Priority per scene:
-  1. Pexels VIDEO clip (preferred orientation first, any orientation as backup)
-  2. Pexels PHOTO (real photography — ffmpeg adds the Ken Burns zoom)
-  3. (handled in visuals.py) Pollinations AI image -> editorial poster
-
-Keywords are picked LOCALLY (rotating niche list, zero Gemini calls).
-Every attempt updates state/pexels_status.json with a short diagnostic
-(key length, last state) so the result can be read directly from the repo.
-
-Search orientation comes from cfg["video"]["pexels_orientation"]
-(default "portrait" = Shorts, unchanged). The long-form story sets it
-to "landscape" so clips match its 16:9 frame.
+Per scene: video clip -> photo -> (visuals.py) drawn poster.
+Keywords are local (zero AI calls). The video search tries the scene
+keywords, then 5 generic niche queries rotating daily. Diagnostics are
+written to state/pexels_status.json (video and photo states kept apart).
 """
 from __future__ import annotations
 
@@ -29,24 +21,14 @@ PHOTO_URL = "https://api.pexels.com/v1/search"
 USED_FILE = REPO_ROOT / "state" / "used_pexels.json"
 STATUS_FILE = REPO_ROOT / "state" / "pexels_status.json"
 
-# api.pexels.com blocks the default python-urllib User-Agent with 403 —
-# pretend to be a normal browser (the key itself stays in Authorization).
+# api.pexels.com 403s the default python UA — use a browser UA.
 BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
 FALLBACK_KEYWORDS = [
-    "ancient architecture",
-    "old books",
-    "desert landscape",
-    "night sky stars",
-    "old city streets",
-    "candles dark",
-    "mosque silhouette",
-    "sand dunes",
-    "old map",
-    "river sunset",
-    "incense smoke",
-    "old wooden door",
+    "ancient architecture", "old books", "desert landscape", "night sky stars",
+    "old city streets", "candles dark", "mosque silhouette", "sand dunes",
+    "old map", "river sunset", "incense smoke", "old wooden door",
 ]
 
 
@@ -58,22 +40,21 @@ def _orientation(cfg: dict) -> str:
     return str((cfg.get("video") or {}).get("pexels_orientation") or "portrait")
 
 
-def _status(state: str, detail: str = "") -> None:
-    """Write a small diagnostic file into state/ (committed by the workflow)."""
+def _vstatus(kind: str, state: str, detail: str = "") -> None:
+    """Persistent diagnostics; keeps last_video and last_photo separate."""
     try:
         key = env("PEXELS_API_KEY", required=False)
         data = load_json(STATUS_FILE, {})
-        data.update({
-            "last_run": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
-            "key_len": len(key or ""),
-            "state": state,
-        })
+        stamp = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
+        data[f"last_{kind}"] = state
+        data[f"last_{kind}_at"] = stamp
+        data.update({"last_run": stamp, "key_len": len(key or ""), "state": state})
         if detail:
             data["detail"] = detail[:140]
         else:
             data.pop("detail", None)
         save_json(STATUS_FILE, data)
-    except Exception:  # noqa: BLE001 — diagnostics must never crash the bot
+    except Exception:  # noqa: BLE001 — never crash the bot
         pass
 
 
@@ -88,11 +69,9 @@ def _get(url: str, params: dict, api_key: str) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _download(url: str, dest: Path, api_key: str) -> None:
-    req = urllib.request.Request(url, headers={
-        "Authorization": api_key,
-        "User-Agent": BROWSER_UA,
-    })
+def _download(url: str, dest: Path) -> None:
+    # No Authorization header — CDN links are public, the key stays on the API.
+    req = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".tmp")
     with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
@@ -105,22 +84,17 @@ def _download(url: str, dest: Path, api_key: str) -> None:
 
 
 def keywords_for_scene(gem, script, scene_idx: int, n_scenes: int) -> list[str]:
-    """Local stock-search keywords — ZERO Gemini calls. Rotates a hand-picked
-    list that fits the channel niche; the offset comes from the script text so
-    every video gets a different mix. `gem` kept for call-compat."""
+    """Local keywords — zero AI calls. Offset comes from the script text."""
     digest = hashlib.sha1(" ".join(script.narration).encode()).hexdigest()
     off = int(digest[:4], 16)
     i = (off + scene_idx * 2) % len(FALLBACK_KEYWORDS)
     return [FALLBACK_KEYWORDS[i], FALLBACK_KEYWORDS[(i + 1) % len(FALLBACK_KEYWORDS)]]
 
 
-# ------------------------------------------------------------------ videos
 def _usable_files(v: dict) -> list[dict]:
-    """HD mp4 variants of one video, smallest first."""
     files = [f for f in v.get("video_files", [])
              if f.get("file_type") == "video/mp4"
-             and ((f.get("height") or 0) >= 1280
-                  or (f.get("width") or 0) >= 1280)]
+             and ((f.get("height") or 0) >= 1280 or (f.get("width") or 0) >= 1280)]
     files.sort(key=lambda f: f.get("height") or 0)
     return files
 
@@ -133,7 +107,6 @@ def _search(api_key: str, query: str, orientation: str | None) -> dict:
 
 
 def _collect(data: dict, used: set) -> list[tuple]:
-    """Candidates as (matching_orientation_first, height, id, link), best first."""
     cands = []
     for v in data.get("videos", []):
         if f"v{v.get('id')}" in used or (v.get("duration") or 0) < 8:
@@ -149,51 +122,63 @@ def _collect(data: dict, used: set) -> list[tuple]:
 
 
 def fetch_pexels_video(keywords: list[str], idx: int, out: Path, cfg: dict) -> Path | None:
-    """Search + download one HD clip. Preferred orientation first, fallback any."""
+    """Try up to 6 queries: scene keywords, then 5 generic ones (daily rotate)."""
     api_key = env("PEXELS_API_KEY", required=False)
     if not api_key:
-        _status("empty_key")
+        _vstatus("video", "empty_key")
         return None
 
     used = {str(x) for x in load_json(USED_FILE, {"ids": []}).get("ids", [])}
-    query = " ".join(keywords[:2])
     orient = _orientation(cfg)
-    try:
-        data = _search(api_key, query, orient)
-        candidates = _collect(data, used)
-        if not candidates:
-            data = _search(api_key, query, None)
+
+    queries = [" ".join(keywords[:2])]
+    seed = int(time.strftime("%Y%m%d")) + idx
+    for k in range(5):
+        q = FALLBACK_KEYWORDS[(seed + k * 3) % len(FALLBACK_KEYWORDS)]
+        if q not in queries:
+            queries.append(q)
+
+    candidates: list[tuple] = []
+    used_query = ""
+    for query in queries:
+        try:
+            data = _search(api_key, query, orient)
             candidates = _collect(data, used)
-    except Exception as exc:  # noqa: BLE001
-        print(f"    [pexels] video search failed ({str(exc)[:100]})")
-        _status("video_search_failed", str(exc))
-        return None
+            if not candidates:
+                data = _search(api_key, query, None)
+                candidates = _collect(data, used)
+        except Exception as exc:  # noqa: BLE001 — try next query
+            print(f"    [pexels] video search failed for '{query}' ({str(exc)[:100]})")
+            continue
+        if candidates:
+            used_query = query
+            break
 
     if not candidates:
-        print(f"    [pexels] no video clip for '{query}' — will try photos")
+        _vstatus("video", "no_video_results")
+        print("    [pexels] no video clip in 6 searches — will try photos")
         return None
 
     vid, link, kind = candidates[idx % len(candidates)]
     try:
-        _download(link, out, api_key)
+        _download(link, out)
     except Exception as exc:  # noqa: BLE001
         print(f"    [pexels] video download failed ({str(exc)[:100]})")
-        _status("video_download_failed", str(exc))
+        _vstatus("video", "video_download_failed", str(exc))
         return None
 
     used.add(f"v{vid}")
     save_json(USED_FILE, {"ids": sorted(used)[-800:]})
-    _status("ok_video")
-    print(f"    [pexels] video '{query}' -> clip #{vid} ({kind})")
+    _vstatus("video", "ok_video")
+    print(f"    [pexels] video '{used_query}' -> clip #{vid} ({kind})")
     return out
 
 
-# ------------------------------------------------------------------ photos
 def fetch_pexels_photo(keywords: list[str], idx: int, out: Path, cfg: dict) -> Path | None:
     """Download one real photo (JPG) to `out`. Caller converts to PNG."""
     api_key = env("PEXELS_API_KEY", required=False)
     if not api_key:
-        _status("empty_key")
+        _vstatus("photo", "empty_key")
         return None
 
     used = {str(x) for x in load_json(USED_FILE, {"ids": []}).get("ids", [])}
@@ -207,7 +192,7 @@ def fetch_pexels_photo(keywords: list[str], idx: int, out: Path, cfg: dict) -> P
         }, api_key)
     except Exception as exc:  # noqa: BLE001
         print(f"    [pexels] photo search failed ({str(exc)[:100]})")
-        _status("photo_search_failed", str(exc))
+        _vstatus("photo", "photo_search_failed", str(exc))
         return None
 
     photos = []
@@ -221,19 +206,19 @@ def fetch_pexels_photo(keywords: list[str], idx: int, out: Path, cfg: dict) -> P
             photos.append((pid, link))
     if not photos:
         print(f"    [pexels] no photo for '{query}'")
-        _status("no_photo_results")
+        _vstatus("photo", "no_photo_results")
         return None
 
     pid, link = photos[idx % len(photos)]
     try:
-        _download(link, out, api_key)
+        _download(link, out)
     except Exception as exc:  # noqa: BLE001
         print(f"    [pexels] photo download failed ({str(exc)[:100]})")
-        _status("photo_download_failed", str(exc))
+        _vstatus("photo", "photo_download_failed", str(exc))
         return None
 
     used.add(f"p{pid}")
     save_json(USED_FILE, {"ids": sorted(used)[-800:]})
-    _status("ok_photo")
+    _vstatus("photo", "ok_photo")
     print(f"    [pexels] photo '{query}' -> #{pid}")
     return out
