@@ -2,12 +2,10 @@ name: YouTube Shorts automation
 
 on:
   schedule:
-    # Two shorts a day (Marrakesh = UTC+1): 10:00 and 20:00 local time.
-    # (The old 15:00 slot is now the long audio story — see long.yml, 18:00 UTC.)
+    # One short a day (Marrakesh = UTC+1): 17:00 local time.
     # NOTE: GitHub scheduled workflows can drift ~15 min and are paused after
     # 60 days of repo inactivity; the daily state commits prevent that.
-    - cron: "0 9 * * *"
-    - cron: "0 19 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       topic:
