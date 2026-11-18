@@ -2,10 +2,11 @@ name: YouTube Shorts automation
 
 on:
   schedule:
-    # One short a day (Marrakesh = UTC+1): 17:00 local time.
+    # One short a day (Marrakesh = UTC+1): 11:00 local time. GitHub queue
+    # delay then pushes the upload to the afternoon — never late at night.
     # NOTE: GitHub scheduled workflows can drift ~15 min and are paused after
     # 60 days of repo inactivity; the daily state commits prevent that.
-    - cron: "0 16 * * *"
+    - cron: "0 10 * * *"
   workflow_dispatch:
     inputs:
       topic:
